@@ -121,6 +121,36 @@ SIDFX	SIDFXExplosion[1] = {{
 	8, 40
 }};
 
+SIDFX	SIDFXPlayerExplosion[4] = {{
+	100, 1000, 
+	SID_CTRL_GATE | SID_CTRL_SAW,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_1500,
+	0, 0,
+	2, 0
+},{
+	300, 1000, 
+	SID_CTRL_GATE | SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_1500,
+	100, 0,
+	8, 0
+},{
+	1000, 1000, 
+	SID_CTRL_GATE | SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_1500,
+	200, 0,
+	4, 20
+},{
+	2000, 1000, 
+	SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_6,
+	0xf0  | SID_DKY_1500,
+	0, 0,
+	0, 40
+}};
+
 SIDFX	SIDFXBoing[1] = {{
 	3200, 2048 + 300, 
 	SID_CTRL_GATE | SID_CTRL_RECT,
@@ -224,7 +254,7 @@ void math_init(void)
 	} while (c);
 }
 
-struct Body
+__zeropage struct Body
 {
 	int		px, py, vx, vy;
 	char	weight;
@@ -245,7 +275,7 @@ static inline int asr4(int v)
 static const float DT = 0.04;
 
 char	scr_column[25], col_column[25];
-char	ctop, cbottom ,csize, bimg, bcnt, cimg, ccnt, cdist;
+char	ctop, cbottom ,csize, bimg, bcnt, cimg, ccnt, cdist, cimgy;
 bool	cframe;
 byte	*	cscreen;
 
@@ -254,6 +284,8 @@ struct Playfield
 	char	px, vx;
 	char	cx;
 	bool	scrolled;
+	char	wsize, wfreq;
+
 }	playfield;
 
 #define ET_BALL_COLLISION	0x10
@@ -273,8 +305,66 @@ enum EnemyType
 	ET_UPPER_SPIKE = ET_PLAYER_COLLISION + ET_LETHAL + 5,
 	ET_KNIFE = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 6,
 	ET_COIN = ET_PLAYER_COLLISION + 7,
+
 	ET_SHURIKEN_UP = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 8,
 	ET_SHURIKEN_DOWN = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 9,
+
+	ET_BAT = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 10,
+};
+
+enum EnemyEvent
+{
+	EE_NONE,
+
+	EE_MINE_1,
+	EE_MINE_2,
+	EE_MINE_3,
+
+	EE_STAR_MID,
+	EE_STAR_TOP,
+	EE_STAR_BOTTOM,
+
+	EE_COIN_MID,
+	EE_COIN_TOP,
+	EE_COIN_BOTTOM,
+
+	EE_SPIKES,
+	EE_KNIVE,
+	EE_SHURIKEN,
+	EE_BAT,
+
+	EE_SHRINK,
+	EE_FREQUENCY,
+};
+
+EnemyEvent	eventMatrix[64];
+
+EnemyEvent	eventLevels[100] = {
+
+	EE_FREQUENCY, EE_MINE_1, EE_NONE,     EE_NONE, EE_NONE, 
+	EE_SHRINK,    EE_MINE_1, EE_NONE,     EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_MINE_1, EE_NONE,     EE_NONE, EE_NONE, 
+	EE_SHRINK,    EE_MINE_1, EE_NONE,     EE_NONE, EE_NONE, 
+
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
+	EE_SHRINK,    EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
+	EE_SHRINK,    EE_SPIKES, EE_KNIVE,    EE_BAT,  EE_NONE, 
+
+	EE_FREQUENCY, EE_MINE_2, EE_SHURIKEN, EE_NONE, EE_NONE, 
+	EE_SHRINK,    EE_MINE_2, EE_SHURIKEN, EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_MINE_2, EE_SHURIKEN, EE_NONE, EE_NONE, 
+	EE_SHRINK,    EE_MINE_2, EE_SHURIKEN, EE_BAT,  EE_NONE, 
+
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_BAT,  EE_NONE, 
+
+	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_BAT,  EE_NONE, 
 };
 
 struct Enemy
@@ -286,7 +376,7 @@ struct Enemy
 
 }	enemies[3];
 
-char	nenemy;
+char		nenemy;
 
 char		score[9];
 char		nstars;
@@ -481,16 +571,25 @@ void score_add(char amount)
 
 void score_inc(void)
 {
-	scorecnt += 2 * nstars;
+	scorecnt += 16 * nstars;
 	if (scorecnt & 0xff00)
 	{
-		scorecnt -= 0x100;
-	
 		char	c = 5;
-		score[c]++;
-		while (score[c] == 10)
+		if (scorecnt >= 0xa00)
 		{
-			score[c] = 0;
+			scorecnt -= 0xa00;
+			score[4]++;
+			c = 4;
+		}
+		else
+		{
+			score[5] += scorecnt >> 8;
+			scorecnt &= 0x00ff;
+		}
+	
+		while (score[c] >= 10)
+		{
+			score[c] -= 10;
 			score_draw(c);
 			c--;
 			score[c]++;		
@@ -531,6 +630,136 @@ void enemies_init(void)
 	xspr_move(6, 0, 0);
 	xspr_move(7, 0, 0);
 }
+
+void enemies_add(EnemyType type, char y)
+{
+	if (enemies[nenemy].type == ET_NONE)
+	{
+		enemies[nenemy].px = 354;
+		enemies[nenemy].py = y;
+		enemies[nenemy].type = type;
+		enemies[nenemy].phase = 0;
+
+		switch (type)
+		{
+			case ET_MINE:				
+				xspr_image(5 + nenemy, 80);
+				xspr_color(5 + nenemy, VCOL_RED);
+				break;
+			case ET_STAR:
+				xspr_image(5 + nenemy, 104);
+				xspr_color(5 + nenemy, VCOL_YELLOW);
+				break;
+			case ET_COIN:
+				xspr_image(5 + nenemy, 108);
+				xspr_color(5 + nenemy, VCOL_YELLOW);
+				break;
+			case ET_LOWER_SPIKE:
+				xspr_image(5 + nenemy, 81);
+				xspr_color(5 + nenemy, VCOL_LT_GREY);
+				break;
+			case ET_UPPER_SPIKE:
+				xspr_image(5 + nenemy, 82);
+				xspr_color(5 + nenemy, VCOL_LT_GREY);
+				break;
+			case ET_KNIFE:
+				xspr_image(5 + nenemy, 83);
+				xspr_color(5 + nenemy, VCOL_LT_GREY);
+				break;
+			case ET_SHURIKEN_UP:
+			case ET_SHURIKEN_DOWN:
+				xspr_image(5 + nenemy, 84);
+				xspr_color(5 + nenemy, VCOL_LT_GREY);
+				sidfx_play(2, SIDFXShuriken, 4);
+				break;
+			case ET_BAT:
+				xspr_image(5 + nenemy, 112);
+				xspr_color(5 + nenemy, VCOL_BROWN);
+				break;
+		}
+
+		xspr_move(5 + nenemy, enemies[nenemy].px, enemies[nenemy].py);
+
+		nenemy++;
+		if (nenemy == 3)
+			nenemy = 0;
+	}
+}
+
+
+
+void enemies_event(EnemyEvent ee)
+{
+	switch (ee)
+	{
+	case EE_NONE:
+		break;
+
+	case EE_MINE_1:
+		enemies_add(ET_MINE, (ctop + cbottom) * 4 + 40);
+		break;
+	case EE_MINE_2:
+		enemies_add(ET_MINE, (ctop + cbottom) * 4 + 30);
+		enemies_add(ET_MINE, (ctop + cbottom) * 4 + 50);
+		break;
+	case EE_MINE_3:
+		enemies_add(ET_MINE, (ctop + cbottom) * 4 + 20);
+		enemies_add(ET_MINE, (ctop + cbottom) * 4 + 40);
+		enemies_add(ET_MINE, (ctop + cbottom) * 4 + 60);
+		break;
+
+	case EE_STAR_MID:
+		enemies_add(ET_STAR, (ctop + cbottom) * 4 + 40);
+		break;
+	case EE_STAR_TOP:
+		enemies_add(ET_STAR, ctop * 8 + 50);
+		break;
+	case EE_STAR_BOTTOM:
+		enemies_add(ET_STAR, cbottom * 8 + 30);
+		break;
+
+	case EE_COIN_MID:
+		enemies_add(ET_COIN, (ctop + cbottom) * 4 + 40);
+		break;
+
+	case EE_COIN_TOP:
+		enemies_add(ET_COIN, ctop * 8 + 50);
+		break;
+
+	case EE_COIN_BOTTOM:
+		enemies_add(ET_COIN, cbottom * 8 + 30);
+		break;
+
+	case EE_SPIKES:
+		enemies_add(ET_UPPER_SPIKE, ctop * 8 + 50);
+		enemies_add(ET_LOWER_SPIKE, cbottom * 8 + 37);
+		break;
+
+	case EE_KNIVE:
+		enemies_add(ET_KNIFE, (ctop + cbottom) * 4 + 40);
+		break;
+
+	case EE_SHURIKEN:
+	{
+		char yp = asr4(player.py);
+		if (yp < 100)
+			enemies_add(ET_SHURIKEN_UP, yp + 50 + ((320 - asr4(player.px)) >> 2));
+		else
+			enemies_add(ET_SHURIKEN_DOWN, yp + 50 - ((320 - asr4(player.px)) >> 2));
+	}
+		break;
+
+	case EE_BAT:
+		enemies_add(ET_BAT, 92 + (rand() & 127));
+		break;
+
+	}
+}
+
+static sbyte batyspeed[32] = {
+	-1, -1, -1, -2, -2, -3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0,
+	 1,  1,  1,  2,  2,  3,  2,  2,  1,  1,  1, 0, 0, 0, 0, 0
+};
 
 void enemies_scroll(char n)
 {
@@ -623,6 +852,19 @@ void enemies_scroll(char n)
 						enemies[i].type = ET_NONE;
 
 					break;
+
+				case ET_BAT:
+					if (enemies[i].px >= 1)
+					{
+						enemies[i].px -= 1;
+						enemies[i].py += batyspeed[(enemies[i].phase & 63) >> 1];
+						xspr_image(5 + i, 112 + ((enemies[i].phase & 15) >> 2));
+						enemies[i].phase++;
+					}
+					else
+						enemies[i].type = ET_NONE;
+					break;
+
 			}
 
 
@@ -634,56 +876,8 @@ void enemies_scroll(char n)
 	}
 }
 
-void enemies_add(EnemyType type, char y)
-{
-	if (enemies[nenemy].type == ET_NONE)
-	{
-		enemies[nenemy].px = 354;
-		enemies[nenemy].py = y;
-		enemies[nenemy].type = type;
-		enemies[nenemy].phase = 0;
-
-		switch (type)
-		{
-			case ET_MINE:
-				xspr_image(5 + nenemy, 80);
-				xspr_color(5 + nenemy, VCOL_RED);
-				break;
-			case ET_STAR:
-				xspr_image(5 + nenemy, 104);
-				xspr_color(5 + nenemy, VCOL_YELLOW);
-				break;
-			case ET_COIN:
-				xspr_image(5 + nenemy, 108);
-				xspr_color(5 + nenemy, VCOL_YELLOW);
-				break;
-			case ET_LOWER_SPIKE:
-				xspr_image(5 + nenemy, 81);
-				xspr_color(5 + nenemy, VCOL_LT_GREY);
-				break;
-			case ET_UPPER_SPIKE:
-				xspr_image(5 + nenemy, 82);
-				xspr_color(5 + nenemy, VCOL_LT_GREY);
-				break;
-			case ET_KNIFE:
-				xspr_image(5 + nenemy, 83);
-				xspr_color(5 + nenemy, VCOL_LT_GREY);
-				break;
-			case ET_SHURIKEN_UP:
-			case ET_SHURIKEN_DOWN:
-				xspr_image(5 + nenemy, 84);
-				xspr_color(5 + nenemy, VCOL_LT_GREY);
-				sidfx_play(2, SIDFXShuriken, 4);
-				break;
-		}
-
-		xspr_move(5 + nenemy, enemies[nenemy].px, enemies[nenemy].py);
-
-		nenemy++;
-		if (nenemy == 3)
-			nenemy = 0;
-	}
-}
+const char ctileybase[16] = {5, 5, 5, 5, 5, 5, 5, 8, 8, 8, 1, 1, 6, 6, 7, 7};
+const char ctileymask[16] = {3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 7, 7, 0, 0, 0, 0};
 
 void playfield_column(void)
 {
@@ -715,22 +909,15 @@ void playfield_column(void)
 		{
 			if (rand() & 3)
 			{
-				ctop = (rand() & 7) + 2;
-				cbottom = ctop + 7 + (rand() & 7);
+				ctop = (rand() & 15) + 2;
+				cbottom = ctop + playfield.wsize + (rand() & 3);
+				if (cbottom > 23)
+				{
+					ctop -= cbottom - 23;
+					cbottom = 23;
+				}
 
-//				enemies_add(ET_KNIFE, (ctop + cbottom) * 4 + 40);
-
-				char yp = asr4(player.py);
-				if (yp < 100)
-					enemies_add(ET_SHURIKEN_UP, yp + 50 + ((320 - asr4(player.px)) >> 2));
-				else
-					enemies_add(ET_SHURIKEN_DOWN, yp + 50 - ((320 - asr4(player.px)) >> 2));
-
-//				enemies_add(ET_KNIFE, (ctop + cbottom) * 4 + 40);
-
-//				enemies_add(ET_COIN, (ctop + cbottom) * 4 + 40);
-//				enemies_add(ET_UPPER_SPIKE, ctop * 8 + 50);
-//				enemies_add(ET_LOWER_SPIKE, cbottom * 8 + 37);
+				enemies_event(eventMatrix[rand() & 63]);
 			}
 			else
 			{
@@ -738,13 +925,18 @@ void playfield_column(void)
 				ctop = cbottom + 8 + 2 * (rand() & 3);
 			}
 			csize = 5;
-			cdist = 2 + (rand() & 3);
+			cdist = (playfield.wfreq + (rand() & 7)) >> 1;
 		}
 		else
 		{
-			cimg = ((rand() & 255) * 6) >> 8;
+			cimg = (rand() & 255) & 15;
 			ccnt = 0;
 			cdist--;
+			cimgy = ctileybase[cimg] + (rand() & ctileymask[cimg]);
+
+			ctop = 0;
+			cbottom = 25;
+			enemies_event(eventMatrix[rand() & 63]);
 		}
 	}
 
@@ -823,8 +1015,8 @@ void playfield_column(void)
 		for(char i=0; i<8; i++)
 		{
 			char c = tileset_center[i + 8 * ccnt + 64 * cimg];
-			scr_column[i + 8] = c;
-			col_column[i + 8] = charattribs_center[c];
+			scr_column[i + cimgy] = c;
+			col_column[i + cimgy] = charattribs_center[c];
 
 		}
 		ccnt++;
@@ -987,12 +1179,77 @@ struct Game
 {
 	GameState	state;	// Current game state	
 	char		count;	// Countdown for states that change after delay
-	char		pulling;
+	bool		pulling, throw;
+	char		level;
 
 }	game;
 
 void game_init(void)
 {
+	game.level = 0;
+	game.pulling = false;
+	game.throw = false;
+
+	for(char i=0; i<64; i++)
+	{
+		switch (i & 7)
+		{
+			case 0:
+				eventMatrix[i] = EE_STAR_TOP;
+				break;
+			case 1:
+				eventMatrix[i] = EE_STAR_BOTTOM;
+				break;
+			case 2:
+				eventMatrix[i] = EE_STAR_MID;
+				break;
+
+			case 3:
+			case 4:
+				eventMatrix[i] = EE_COIN_TOP;
+				break;
+			case 5:
+				eventMatrix[i] = EE_COIN_MID;
+				break;
+			case 6:
+			case 7:
+				eventMatrix[i] = EE_COIN_BOTTOM;
+				break;
+			default:
+				eventMatrix[i] = EE_NONE;
+		}
+	}
+
+}
+
+void game_level(void)
+{
+	if (game.level < 100)	
+	{
+		EnemyEvent	ee = eventLevels[game.level];
+
+		switch (ee)
+		{
+			case EE_NONE:
+				break;
+
+			case EE_SHRINK:
+				playfield.wsize--;
+				break;
+
+			case EE_FREQUENCY:
+				playfield.wfreq--;
+				break;
+
+			default:
+				eventMatrix[rand() & 63] = ee;
+		}
+
+
+		game.level++;
+		if ((game.level & 1) && playfield.vx < 64)
+			playfield.vx++;
+	}
 }
 
 void player_init(void)
@@ -1009,7 +1266,8 @@ void player_init(void)
 	ball.vy = 0;
 	ball.weight = 1;
 
-	game.pulling = 0;
+	game.pulling = false;
+	game.throw = false;
 
 	xspr_image(0, 64); xspr_color(0, VCOL_RED);
 	xspr_image(1, 76); xspr_color(1, VCOL_MED_GREY);
@@ -1051,10 +1309,15 @@ void player_control(void)
 	player.vx += joyx[0] << (PBITS + 2);
 	player.vy += joyy[0] << (PBITS + 3);
 
-	if (game.pulling)
-		game.pulling--;
-	else if (joyb[0])
-		game.pulling = 20;
+	if (joyb[0])
+		game.pulling = true;
+	else if (game.pulling)
+	{
+		game.pulling = false;
+		game.throw = true;
+	}
+	else
+		game.throw = false;
 }
 
 EnemyType player_collision(void)
@@ -1280,11 +1543,17 @@ void chain_physics(void)
 		char	r = usqrt(rq);
 
 		char	t = 0;
-		if (r > 32)
+		if (game.pulling)
+		{
+			if (r > 16)
+				t = r - 16;
+		}
+		else if (game.throw)
+		{
+			t = 64;
+		}
+		else if (r > 32)
 			t = r - 32;
-
-		if (game.pulling > 16)
-			t += 16;
 
 		if (t)
 		{
@@ -1313,8 +1582,9 @@ void playfield_init(void)
 {
 	playfield.px = 0;
 	playfield.vx = 16;
-	playfield.cx = 0;
 	playfield.scrolled = false;
+	playfield.wsize = 12;
+	playfield.wfreq = 16;
 
 	ctop = 0;
 	cbottom = 25;
@@ -1393,14 +1663,6 @@ void playfield_scroll(void)
 
 		cframe = !cframe;
 
-		playfield.cx++;
-		if (playfield.cx == 10)
-		{
-			playfield.cx = 0;
-			if (playfield.vx < 64)
-				playfield.vx++;
-		}
-
 		playfield_scrollc();
 	}
 	else
@@ -1410,9 +1672,9 @@ void playfield_scroll(void)
 		if (playfield.scrolled)
 		{
 			playfield.scrolled = false;
-	vic.color_border--;
+//	vic.color_border--;
 			playfield_column();
-	vic.color_border++;
+//	vic.color_border++;
 			if (cframe)
 				playfield_scroll1();
 			else
@@ -1432,11 +1694,11 @@ void game_state(GameState state)
 	switch (state)
 	{
 	case GS_START:
-		game_init();
 		game_state(GS_READY);
 		break;
 
 	case GS_READY:
+		game_init();
 		score_init();
 		playfield_init();
 		enemies_init();
@@ -1445,11 +1707,13 @@ void game_state(GameState state)
 
 	case GS_PLAYING:
 		player_init();
+		game.count = 100;
 		break;
 
 	case GS_EXPLODING:
 		player.vx >>= 4;
 		game.count = 0;
+		sidfx_play(2, SIDFXPlayerExplosion, 4);
 		break;
 
 	case GS_GAME_OVER:
@@ -1477,6 +1741,12 @@ void game_loop()
 		break;
 	case GS_PLAYING:		
 		playfield_advance();
+
+		if (!--game.count)
+		{
+			game_level();
+			game.count = 100;
+		}
 
 		vic_waitBottom();
 
