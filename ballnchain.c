@@ -20,17 +20,27 @@
 
 #pragma region( music, 0xa000, 0xc000, , , {music} )
 
+#pragma section( spriteset, 0)
+
+#pragma region( spriteset, 0xc000, 0xd000, , , {spriteset} )
+
+#pragma section( tables, 0)
+
+#pragma region( tables, 0xf000, 0xff00, , , {tables})
+
 #pragma data(music)
 
 __export char music[] = {
 	#embed 0x2000 0x88 "GameScene.sid"
 }
 
-#pragma data(data)
+#pragma data(spriteset)
 
 char spriteset[4096] = {
 	#embed "ballnchain - Sprites.bin"
 };
+
+#pragma data(data)
 
 char charset_center[] = {
 	#embed "ballnchain_center - Chars.bin"
@@ -64,6 +74,10 @@ char charset_digits[] = {
 	#embed "ballnchain_digits - Chars.bin"
 };
 
+char titlescreen[] = {
+	#embed "titlesketch.bin"
+}
+
 byte * const Screen0 = (byte *)0xc800;
 byte * const Screen1 = (byte *)0xcc00;
 
@@ -74,14 +88,245 @@ byte * const Sprites = (byte *)0xd000;
 
 byte * const DynSprites = (byte *)0xc000;
 
+#pragma bss(tables)
+
 byte	asrtab4[256], lsrtab4[256], asltab4[256];
 byte	sqrtabl[256], sqrtabh[256];
+
+#pragma bss(bss)
 
 #pragma align(asrtab4, 256)
 #pragma align(lsrtab4, 256)
 #pragma align(asltab4, 256)
 #pragma align(sqrtabl, 256)
 #pragma align(sqrtabh, 256)
+
+
+RIRQCode		irq_title[6], irq_title_hide, irq_title_show;
+
+char irq_title_i;
+char irq_title_c;
+char irq_title_y[6];
+char irq_title_s[6];
+
+char * tcbase[12];
+
+const char title_text[] = 
+//   012345678901
+	"DEEP DOWN IN"
+	"THE DARK AND"
+	"   GLOOMY   "
+	"DUNGENOS OF "
+	" THE SPIKE  "
+	" EMPIRE, AN "
+	"  INNOCENT  "
+	" RUBBERBALL "
+	"  HAS BEEN  "
+	"  HELD  IN  "
+	"  CAPTIVITY "
+	"AND CHAINED "
+	"TO A .. A .."
+	"    BALL,   "
+	"A HEAVY IRON"
+	"  BALL THAT "
+	"     IS.    "
+	"            "
+	"SO ONE DAY, "
+	"  AFTER A   "
+	"  GENEROUS  "
+	"  GULP OF   "
+	"HELIUM, OUR "
+	"HERO DECIDES"
+	"TO FLEE FROM"
+	" THIS JAIL  "
+	" AND RETURN "
+	"TO THE PLACE"
+	" OF FUN AND "
+	"   GAMES.   "
+	"            "
+	"   COLLECT  "
+	"COINS ON THE"
+	"WAY FOR MORE"
+	"  POINTS.   "
+	"            "
+	"STARS GRANT "
+	"  A HIGHER  "
+	" MULTIPLIER "
+	"  BUT ALSO  "
+	"INCREASE THE"
+	"  WEIGHT OF "
+	"  THE IRON  "
+	"    BALL.   "
+	"            "
+	"PRESS FIRE  "
+	"FOR TIGHTER "
+	"CONTROL OF  "
+	"YOUR BALLS. "
+	"            ";
+
+__interrupt void titlescreen_irq(void)
+{
+	char y = irq_title_y[irq_title_i];
+	char s = irq_title_s[irq_title_i];
+
+	vic.spr_pos[0].y = y;		
+	vic.spr_pos[1].y = y;		
+	vic.spr_pos[2].y = y;		
+	vic.spr_pos[3].y = y;
+
+	vic.spr_pos[4].y = y + 1;
+	vic.spr_pos[5].y = y + 1;		
+	vic.spr_pos[6].y = y + 1;		
+	vic.spr_pos[7].y = y + 1;		
+
+	Screen0[0x3f8 + 0] = s + 0;
+	Screen0[0x3f8 + 1] = s + 1;
+	Screen0[0x3f8 + 2] = s + 2;
+	Screen0[0x3f8 + 3] = s + 3;
+
+	Screen0[0x3f8 + 4] = s + 0;
+	Screen0[0x3f8 + 5] = s + 1;
+	Screen0[0x3f8 + 6] = s + 2;
+	Screen0[0x3f8 + 7] = s + 3;
+}
+
+void titlescreen_char(char x, char y, char c)
+{
+	char * dp = tcbase[x];
+	if (y & 1)
+		dp += 39;
+	dp += (y >> 1) * (4 * 64);
+
+	const char * sp = charset_digits + 8 * (c & 0x3f);
+
+	dp[ 0] = sp[0];
+	dp[ 3] = sp[1];
+	dp[ 6] = sp[2];
+	dp[ 9] = sp[3];
+	dp[12] = sp[4];
+	dp[15] = sp[5];
+	dp[18] = sp[6];
+	dp[21] = sp[7];
+}
+
+void titlescreen_show(void)
+{
+	memcpy(Font, titlescreen, 8000);
+	memcpy(Screen0, titlescreen + 8000, 1000);
+	memcpy(Color, titlescreen + 9000, 1000);
+
+	memset(DynSprites, 0x00, 2048);
+
+	vic.spr_enable = 0xff;
+	vic.spr_multi = 0x00;
+	vic.spr_expand_x = 0xff;
+	vic.spr_expand_y = 0x00;
+
+	for(char i=0; i<4; i++)
+	{
+		vic_sprxy(i    , 88 + 48 * i, 110);
+		vic_sprxy(i + 4, 90 + 48 * i, 111);
+		vic.spr_color[i] = VCOL_LT_BLUE;
+		vic.spr_color[i + 4] = VCOL_BLACK;
+
+		for(char k=0; k<3; k++)
+			tcbase[k + 3 * i] = DynSprites + k + 64 * i;
+	}
+
+	irq_title_c = VCOL_BLACK;
+
+	rirq_build(&irq_title_show, 2);
+	rirq_write(&irq_title_show, 0, &vic.spr_msbx, 0x00);
+	rirq_write(&irq_title_show, 1, &vic.spr_expand_x, 0xff);
+	rirq_set(6, 115, &irq_title_show);
+
+	rirq_build(&irq_title_hide, 2);
+	rirq_write(&irq_title_hide, 0, &vic.spr_msbx, 0xff);
+	rirq_write(&irq_title_hide, 1, &vic.spr_expand_x, 0x00);
+	rirq_set(7, 250, &irq_title_hide);
+
+	for(char i=0; i<6; i++)
+	{
+		rirq_build(irq_title + i, 2);
+		rirq_write(irq_title + i, 0, &irq_title_i, i);
+		rirq_call(irq_title + i, 1, titlescreen_irq);
+		rirq_set(i, 115 + 26 * i, irq_title + i);
+
+		irq_title_y[i] = 120 + 26 * i;
+		irq_title_s[i] = 4 * i;
+	}
+
+	// sort the raster IRQs
+	rirq_sort();
+
+	// start raster IRQ processing
+	rirq_start();
+
+	vic_setmode(VICM_HIRES_MC, Screen0, Font);
+	vic.color_border = VCOL_BLACK;
+	vic.color_back = VCOL_BLACK;
+
+	const char *	ttext = title_text;
+	char	sy = 0, ky = 0;
+	char	delay = 0;
+	do {
+		rirq_wait();
+
+		delay++;
+		if (delay == 2)
+		{
+			delay = 0;
+
+			sy++;
+			if (sy == 26)
+			{
+				sy = 0;
+
+				if (ttext[0])
+				{
+					for(char i=0; i<12; i++)
+					{
+						titlescreen_char(i, 2 * ky    , ttext[i]     );
+						titlescreen_char(i, 2 * ky + 1, ttext[i + 12]);
+					}
+
+					ttext += 24;
+				}
+				else
+				{
+					for(char i=0; i<12; i++)
+					{
+						titlescreen_char(i, 2 * ky    , ' ');
+						titlescreen_char(i, 2 * ky + 1, ' ');
+					}					
+				}
+
+				ky++;
+				if (ky == 6)
+					ky = 0;
+
+			}
+
+			char j = ky;
+			for(char i=0; i<6; i++)
+			{
+				rirq_set(i, 115 - sy + 26 * i, irq_title + i);
+				irq_title_y[i] = 120 - sy + 26 * i;			
+				irq_title_s[i] = 4 * j;
+				j++;
+				if (j == 6)
+					j = 0;
+			}
+
+			rirq_sort();
+		}
+
+		joy_poll(0);
+	} while (!joyb[0]);
+
+	for(char i=0; i<8; i++)
+		rirq_clear(i);
+}
 
 void tileset_init(void)
 {
@@ -402,10 +647,8 @@ RIRQCode	* const	irq_bottom = &irq_bottom20.c;
 
 char	xspr_msb;
 
-void irqs_init(void)
+void playfield_initirqs(void)
 {
-	rirq_init(false);
-
 	rirq_build(irq_top, 19);
 	rirq_write(irq_top, 0, &(vic.spr_pos[5].y), 0);
 	rirq_write(irq_top, 1, &(vic.spr_pos[6].y), 0);
@@ -553,9 +796,9 @@ inline void score_draw(char ci)
 void score_init(void)
 {
 	for(char i=0; i<9; i++)
-		score[i] = 0;	
+		score[i] = 0x30;
 
-	score[6] = 10;
+	score[6] = 0x00;
 	nstars = 1;
 	scorecnt = 0;
 
@@ -587,7 +830,7 @@ void score_inc(void)
 			scorecnt &= 0x00ff;
 		}
 	
-		while (score[c] >= 10)
+		while (score[c] >= 0x3a)
 		{
 			score[c] -= 10;
 			score_draw(c);
@@ -604,9 +847,9 @@ void star_inc(void)
 	nstars++;
 
 	score[8]++;
-	if (score[8] == 10)
+	if (score[8] == 0x3a)
 	{
-		score[8] = 0;
+		score[8] = 0x30;
 		score[7]++;		
 		score_draw(7);
 	}
@@ -1812,24 +2055,33 @@ int main(void)
 
 	__asm { sei }
 
-	math_init();
+	// Copy spriteset under IO, freeing 0xc000..0xcfff
+	mmap_set(MMAP_CHAR_ROM);
+
+	memcpy(Sprites, spriteset, 4096);
+
+	mmap_set(MMAP_NO_ROM);
+
+	rirq_init(false);
+
+	titlescreen_show();
+
+	vic_waitBottom();
+	vic.ctrl1 = VIC_CTRL1_RST8;
 
 	// Install character set
 	mmap_set(MMAP_CHAR_ROM);
+
 	memcpy(Font, charset_center, sizeof(charset_center));
 	memcpy(Font + 0xc0 * 8, charset_front, 64 * 8)
 	memcpy(FontBottom, charset_bottom, sizeof(charset_bottom));
 	memcpy(FontBottom + 0xc0 * 8, charset_front, 64 * 8)
-	memcpy(Sprites, spriteset, 4096);
 	memset(DynSprites, 0, 2048);
 
 	memset(Screen0, 0xc1, 1000);
 	memset(Screen1, 0xc1, 1000);
 
 	mmap_set(MMAP_NO_ROM);
-
-	// Switch screen
-	vic_setmode(VICM_TEXT_MC, Screen0, Font);
 
 	vic.color_border = VCOL_BLACK;
 	vic.color_back = VCOL_DARK_GREY;
@@ -1841,19 +2093,25 @@ int main(void)
 
 	sid.fmodevol = 15;
 
+	math_init();
+
 	tileset_init();
 
 	music_init();
 
 	sidfx_init();
 
-	irqs_init();
+	playfield_initirqs();
 
 	xspr_init();
 
 	score_init();
 
 	game_state(GS_START);
+
+	// Switch screen
+	vic_waitBottom();
+	vic_setmode(VICM_TEXT_MC, Screen0, Font);
 
 	for(;;)		
 	{		
