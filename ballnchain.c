@@ -24,7 +24,7 @@
 
 #pragma region( spriteset, 0xc000, 0xd000, , , {spriteset} )
 
-#pragma section( tables, 0)
+#pragma section( tables, 0, , , bss)
 
 #pragma region( tables, 0xf000, 0xff00, , , {tables})
 
@@ -36,8 +36,8 @@ __export char music[] = {
 
 #pragma data(spriteset)
 
-char spriteset[4096] = {
-	#embed "ballnchain - Sprites.bin"
+char spriteset[4095] = {
+	#embed 4095 0 "ballnchain - Sprites.bin"
 };
 
 #pragma data(data)
@@ -101,26 +101,48 @@ byte	sqrtabl[256], sqrtabh[256];
 #pragma align(sqrtabl, 256)
 #pragma align(sqrtabh, 256)
 
+bool	cframe;
+byte	*	cscreen;
 
-RIRQCode		irq_title[6], irq_title_hide, irq_title_show;
+char		score[9];
+char		nstars;
+unsigned	scorecnt;
+
+
+RIRQCode		irq_title[7], irq_title_hide, irq_title_show, irq_title_music;
 
 char irq_title_i;
 char irq_title_c;
-char irq_title_y[6];
-char irq_title_s[6];
+char irq_title_y[7];
+char irq_title_s[7];
 
 char * tcbase[12];
+
+struct Highscore
+{
+	char	name[3];
+	char	score[6];
+
+}	highscores[5] = {
+	{"ABC", "000500"},
+	{"DEF", "000400"},
+	{"GHI", "000300"},
+	{"JKL", "000200"},
+	{"MNO", "000100"},
+};
+
+char	highscoreName[] = "AAA";
 
 const char title_text[] = 
 //   012345678901
 	"DEEP DOWN IN"
 	"THE DARK AND"
 	"   GLOOMY   "
-	"DUNGENOS OF "
+	"DUNGEONS OF "
 	" THE SPIKE  "
 	" EMPIRE, AN "
 	"  INNOCENT  "
-	" RUBBERBALL "
+	" BOUNCY BALL"
 	"  HAS BEEN  "
 	"  HELD  IN  "
 	"  CAPTIVITY "
@@ -164,6 +186,23 @@ const char title_text[] =
 	"YOUR BALLS. "
 	"            ";
 
+void music_init(char tune)
+{
+	__asm
+	{
+		lda		tune
+		jsr		$a000
+	}
+}
+
+void music_play(void)
+{
+	__asm
+	{
+		jsr		$a003
+	}
+}
+
 __interrupt void titlescreen_irq(void)
 {
 	char y = irq_title_y[irq_title_i];
@@ -174,27 +213,27 @@ __interrupt void titlescreen_irq(void)
 	vic.spr_pos[2].y = y;		
 	vic.spr_pos[3].y = y;
 
-	vic.spr_pos[4].y = y + 1;
-	vic.spr_pos[5].y = y + 1;		
-	vic.spr_pos[6].y = y + 1;		
-	vic.spr_pos[7].y = y + 1;		
+	vic.spr_pos[4].y = y - 1;
+	vic.spr_pos[5].y = y - 1;	
+	vic.spr_pos[6].y = y - 1;		
+	vic.spr_pos[7].y = y - 1;
 
-	Screen0[0x3f8 + 0] = s + 0;
-	Screen0[0x3f8 + 1] = s + 1;
-	Screen0[0x3f8 + 2] = s + 2;
-	Screen0[0x3f8 + 3] = s + 3;
+	Screen1[0x3f8 + 0] = s + 0;
+	Screen1[0x3f8 + 1] = s + 1;
+	Screen1[0x3f8 + 2] = s + 2;
+	Screen1[0x3f8 + 3] = s + 3;
 
-	Screen0[0x3f8 + 4] = s + 0;
-	Screen0[0x3f8 + 5] = s + 1;
-	Screen0[0x3f8 + 6] = s + 2;
-	Screen0[0x3f8 + 7] = s + 3;
+	Screen1[0x3f8 + 4] = s + 24;
+	Screen1[0x3f8 + 5] = s + 25;
+	Screen1[0x3f8 + 6] = s + 26;
+	Screen1[0x3f8 + 7] = s + 27;
 }
 
 void titlescreen_char(char x, char y, char c)
 {
 	char * dp = tcbase[x];
 	if (y & 1)
-		dp += 39;
+		dp += 36;
 	dp += (y >> 1) * (4 * 64);
 
 	const char * sp = charset_digits + 8 * (c & 0x3f);
@@ -207,15 +246,45 @@ void titlescreen_char(char x, char y, char c)
 	dp[15] = sp[5];
 	dp[18] = sp[6];
 	dp[21] = sp[7];
+
+	dp += 24 * 64;
+
+	char a, b, c;
+
+	a = sp[0] | (sp[0] >> 1);
+	dp[ 0] = a;
+	b = sp[1] | (sp[1] >> 1);
+	dp[ 3] = a | b;
+	c = sp[2] | (sp[2] >> 1);	
+	dp[ 6] = a | b | c;
+	a = sp[3] | (sp[3] >> 1);
+	dp[ 9] = a | b | c;
+	b = sp[4] | (sp[4] >> 1);
+	dp[12] = a | b | c;
+	c = sp[5] | (sp[5] >> 1);
+	dp[15] = a | b | c;
+	a = sp[6] | (sp[6] >> 1);
+	dp[18] = a | b | c;
+	b = sp[7] | (sp[7] >> 1);
+	dp[21] = a | b | c;
+	dp[24] = a | b;
+}
+
+void titlescreen_string(char x, char y, const char * p)
+{
+	while (*p)
+		titlescreen_char(x++, y, *p++);
 }
 
 void titlescreen_show(void)
 {
+	music_init(1);
+
 	memcpy(Font, titlescreen, 8000);
-	memcpy(Screen0, titlescreen + 8000, 1000);
+	memcpy(Screen1, titlescreen + 8000, 1000);
 	memcpy(Color, titlescreen + 9000, 1000);
 
-	memset(DynSprites, 0x00, 2048);
+	memset(DynSprites, 0x00, 48 * 64);
 
 	vic.spr_enable = 0xff;
 	vic.spr_multi = 0x00;
@@ -225,8 +294,8 @@ void titlescreen_show(void)
 	for(char i=0; i<4; i++)
 	{
 		vic_sprxy(i    , 88 + 48 * i, 110);
-		vic_sprxy(i + 4, 90 + 48 * i, 111);
-		vic.spr_color[i] = VCOL_LT_BLUE;
+		vic_sprxy(i + 4, 87 + 48 * i, 110);
+		vic.spr_color[i] = VCOL_WHITE;
 		vic.spr_color[i + 4] = VCOL_BLACK;
 
 		for(char k=0; k<3; k++)
@@ -238,21 +307,21 @@ void titlescreen_show(void)
 	rirq_build(&irq_title_show, 2);
 	rirq_write(&irq_title_show, 0, &vic.spr_msbx, 0x00);
 	rirq_write(&irq_title_show, 1, &vic.spr_expand_x, 0xff);
-	rirq_set(6, 115, &irq_title_show);
+	rirq_set(7, 116, &irq_title_show);
 
 	rirq_build(&irq_title_hide, 2);
 	rirq_write(&irq_title_hide, 0, &vic.spr_msbx, 0xff);
 	rirq_write(&irq_title_hide, 1, &vic.spr_expand_x, 0x00);
-	rirq_set(7, 250, &irq_title_hide);
+	rirq_set(8, 250, &irq_title_hide);
 
-	for(char i=0; i<6; i++)
+	for(char i=0; i<7; i++)
 	{
 		rirq_build(irq_title + i, 2);
 		rirq_write(irq_title + i, 0, &irq_title_i, i);
 		rirq_call(irq_title + i, 1, titlescreen_irq);
-		rirq_set(i, 115 + 26 * i, irq_title + i);
+		rirq_set(i, 116 + 25 * i, irq_title + i);
 
-		irq_title_y[i] = 120 + 26 * i;
+		irq_title_y[i] = 120 + 25 * i;
 		irq_title_s[i] = 4 * i;
 	}
 
@@ -262,7 +331,7 @@ void titlescreen_show(void)
 	// start raster IRQ processing
 	rirq_start();
 
-	vic_setmode(VICM_HIRES_MC, Screen0, Font);
+	vic_setmode(VICM_HIRES_MC, Screen1, Font);
 	vic.color_border = VCOL_BLACK;
 	vic.color_back = VCOL_BLACK;
 
@@ -271,14 +340,34 @@ void titlescreen_show(void)
 	char	delay = 0;
 	do {
 		rirq_wait();
+		vic_waitBottom();
 
 		delay++;
-		if (delay == 2)
+		if (delay == 3)
 		{
 			delay = 0;
 
 			sy++;
-			if (sy == 26)
+			if (sy == 15)
+			{
+				if (ttext[0])
+				{
+					for(char i=0; i<12; i++)
+					{
+						titlescreen_char(i, 2 * ky, ttext[i]);
+					}
+
+					ttext += 12;
+				}
+				else
+				{
+					for(char i=0; i<12; i++)
+					{
+						titlescreen_char(i, 2 * ky, ' ');
+					}					
+				}
+			}
+			else if (sy == 25)
 			{
 				sy = 0;
 
@@ -286,17 +375,15 @@ void titlescreen_show(void)
 				{
 					for(char i=0; i<12; i++)
 					{
-						titlescreen_char(i, 2 * ky    , ttext[i]     );
-						titlescreen_char(i, 2 * ky + 1, ttext[i + 12]);
+						titlescreen_char(i, 2 * ky + 1, ttext[i]);
 					}
 
-					ttext += 24;
+					ttext += 12;
 				}
 				else
 				{
 					for(char i=0; i<12; i++)
 					{
-						titlescreen_char(i, 2 * ky    , ' ');
 						titlescreen_char(i, 2 * ky + 1, ' ');
 					}					
 				}
@@ -308,10 +395,14 @@ void titlescreen_show(void)
 			}
 
 			char j = ky;
-			for(char i=0; i<6; i++)
+			for(char i=0; i<7; i++)
 			{
-				rirq_set(i, 115 - sy + 26 * i, irq_title + i);
-				irq_title_y[i] = 120 - sy + 26 * i;			
+				unsigned	ty = 116 - sy + 25 * i;
+				if (ty < 245)
+					rirq_set(i, ty, irq_title + i);
+				else
+					rirq_clear(i);
+				irq_title_y[i] = ty + 4;
 				irq_title_s[i] = 4 * j;
 				j++;
 				if (j == 6)
@@ -321,11 +412,212 @@ void titlescreen_show(void)
 			rirq_sort();
 		}
 
+		vic_waitTop();
+		vic.color_border++;
+		music_play();
+		vic.color_border--;
+
+		while (vic.raster < 150)
+			;
+
+		vic.color_border++;
+		music_play();
+		vic.color_border--;
+
 		joy_poll(0);
 	} while (!joyb[0]);
 
-	for(char i=0; i<8; i++)
+	rirq_wait();
+	for(char i=0; i<10; i++)
 		rirq_clear(i);
+	rirq_sort();
+}
+
+bool highscore_greater(char n)
+{
+	for(char k=0; k<6; k++)
+		if (score[k] > highscores[n].score[k])
+			return true;
+		else if (score[k] < highscores[n].score[k])
+			return false;
+
+	return false;
+}
+
+void highscore_show(void)
+{
+	if (cframe)
+		memcpy(Screen1, Screen0, 1000);
+
+	vic_waitBottom();
+
+	vic.spr_enable = 0x00;
+
+	rirq_wait();
+
+	for(char i=0; i<10; i++)
+		rirq_clear(i);
+
+	rirq_build(&irq_title_show, 1);
+	rirq_write(&irq_title_show, 0, &vic.memptr, 0x3a);
+	rirq_set(6, 178, &irq_title_show);
+
+	rirq_build(&irq_title_hide, 1);
+	rirq_write(&irq_title_hide, 0, &vic.memptr, 0x38);
+	rirq_set(7, 250, &irq_title_hide);
+
+	vic.spr_multi = 0x00;
+	vic.spr_expand_x = 0xff;
+	vic.spr_expand_y = 0x00;
+
+	for(char i=0; i<4; i++)
+	{
+		vic_sprxy(i    , 88 + 48 * i, 110);
+		vic_sprxy(i + 4, 87 + 48 * i, 110);
+		vic.spr_color[i] = VCOL_WHITE;
+		vic.spr_color[i + 4] = VCOL_BLACK;
+
+		for(char k=0; k<3; k++)
+			tcbase[k + 3 * i] = DynSprites + k + 64 * i;
+	}
+
+	irq_title_c = VCOL_BLACK;
+
+	for(char i=0; i<6; i++)
+	{
+		rirq_build(irq_title + i, 2);
+		rirq_write(irq_title + i, 0, &irq_title_i, i);
+		rirq_call(irq_title + i, 1, titlescreen_irq);
+		rirq_set(i, 75 + 25 * i, irq_title + i);
+
+		irq_title_y[i] = 80 + 25 * i;
+		irq_title_s[i] = 4 * i;
+	}
+
+	// sort the raster IRQs
+	rirq_sort();
+
+	rirq_wait();
+
+	memset(DynSprites, 0x00, 48 * 64);	
+
+	titlescreen_string(2, 0, "HIGHSCORE");
+
+	char hi = 5;
+	while (hi > 0 && highscore_greater(hi - 1))
+	{
+		if (hi != 5)
+			highscores[hi] = highscores[hi - 1];
+		hi--;
+	}
+	if (hi != 5)
+	{
+		for(char i=0; i<6; i++)
+			highscores[hi].score[i] = score[i];
+		for(char i=0; i<3; i++)		
+			highscores[hi].name[i] = highscoreName[i];
+	}
+
+	for(char i=0; i<5; i++)
+	{
+		for(char j=0; j<3; j++)
+		{
+			titlescreen_char(j     , 2 * i + 2, highscores[i].name[j]);
+			titlescreen_char(j  + 3, 2 * i + 2, '.');
+		}
+		for(char j=0; j<6; j++)
+			titlescreen_char(j +  6, 2 * i + 2, highscores[i].score[j]);
+	}
+
+	vic.spr_enable = 0xff;
+
+	if (hi < 5)
+	{
+		char	hix = 0;
+		char	hic = 0;
+
+		bool	down = false;
+
+		for(;;)
+		{
+			vic_waitFrame();
+			if ((hic & 0x1f) == 0x00)
+				titlescreen_char(hix, 2 * hi + 2, 0x1c);
+			else if ((hic & 0x1f) == 0x10)
+				titlescreen_char(hix, 2 * hi + 2, highscores[hi].name[hix]);
+
+			hic++;
+			if (hic == 0x20)
+				hic = 0x00;
+
+			joy_poll(0);
+
+			if (hic < 0x80)
+			{
+				if (joyy[0] > 0)
+				{
+					if (highscores[hi].name[hix] == 'A')
+						highscores[hi].name[hix] = 'Z';
+					else
+						highscores[hi].name[hix]--;
+					hic = 0xf0;
+				}
+				else if (joyy[0] < 0)
+				{
+					if (highscores[hi].name[hix] == 'Z')
+						highscores[hi].name[hix] = 'A';
+					else
+						highscores[hi].name[hix]++;
+					hic = 0xf0;
+				}
+				else if (hix < 2 && (joyb[0] && !down || joyx[0] > 0))
+				{
+					titlescreen_char(hix, 2 * hi + 2, highscores[hi].name[hix]);
+					hix++;
+					hic = 0xe0;
+				}
+				else if (hix > 0 && joyx[0] < 0)
+				{
+					titlescreen_char(hix, 2 * hi + 2, highscores[hi].name[hix]);
+					hix--;
+					hic = 0xe0;
+				}
+				else if (joyb[0] && !down)
+				{
+					titlescreen_char(hix, 2 * hi + 2, highscores[hi].name[hix]);
+					break;
+				}
+			}
+			else if (joyx[0] == 0 && joyy[0] == 0)
+				hic &= 0x1f;
+
+			down = joyb[0];
+
+		}
+
+		for(char i=0; i<3; i++)		
+			highscoreName[i] = highscores[hi].name[i];
+	}
+
+	do {
+		vic_waitFrame();
+		joy_poll(0);
+	} while (joyb[0]);
+
+	do {
+		vic_waitFrame();
+		joy_poll(0);
+	} while (!joyb[0]);
+
+	do {
+		vic_waitFrame();
+		joy_poll(0);
+	} while (joyb[0]);
+
+	for(char i=0; i<10; i++)
+		rirq_clear(i);
+
+	rirq_sort();
 }
 
 void tileset_init(void)
@@ -466,24 +758,6 @@ SIDFX	SIDFXShuriken[4] = {{
 }};
 
 
-void music_init(void)
-{
-	__asm
-	{
-		lda		#1
-		jsr		$a000
-	}
-}
-
-void music_play(void)
-{
-	__asm
-	{
-		jsr		$a003
-	}
-}
-
-
 void math_init(void)
 {
 	char	c = 0;
@@ -517,12 +791,8 @@ static inline int asr4(int v)
 	return (asrtab4[hv] << 8) | (asltab4[hv] | lsrtab4[lv]);
 }
 
-static const float DT = 0.04;
-
 char	scr_column[25], col_column[25];
 char	ctop, cbottom ,csize, bimg, bcnt, cimg, ccnt, cdist, cimgy;
-bool	cframe;
-byte	*	cscreen;
 
 struct Playfield
 {
@@ -546,6 +816,7 @@ enum EnemyType
 
 	ET_MINE = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 2,
 	ET_STAR = ET_BALL_COLLISION + ET_PLAYER_COLLISION + 3,
+
 	ET_LOWER_SPIKE = ET_PLAYER_COLLISION + ET_LETHAL + 4,
 	ET_UPPER_SPIKE = ET_PLAYER_COLLISION + ET_LETHAL + 5,
 	ET_KNIFE = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 6,
@@ -555,6 +826,9 @@ enum EnemyType
 	ET_SHURIKEN_DOWN = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 9,
 
 	ET_BAT = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 10,
+	ET_SPRING = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 11,
+	ET_SPRING_JUMP = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 12,
+	ET_GHOST = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 13,
 };
 
 enum EnemyEvent
@@ -577,6 +851,8 @@ enum EnemyEvent
 	EE_KNIVE,
 	EE_SHURIKEN,
 	EE_BAT,
+	EE_SPRING,
+	EE_GHOST,
 
 	EE_SHRINK,
 	EE_FREQUENCY,
@@ -586,46 +862,43 @@ EnemyEvent	eventMatrix[64];
 
 EnemyEvent	eventLevels[100] = {
 
-	EE_FREQUENCY, EE_MINE_1, EE_NONE,     EE_NONE, EE_NONE, 
-	EE_SHRINK,    EE_MINE_1, EE_NONE,     EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_MINE_1, EE_NONE,     EE_NONE, EE_NONE, 
-	EE_SHRINK,    EE_MINE_1, EE_NONE,     EE_NONE, EE_NONE, 
+	EE_FREQUENCY, EE_MINE_1, EE_NONE,     EE_NONE,   EE_NONE, 
+	EE_SHRINK,    EE_MINE_1, EE_NONE,     EE_NONE,   EE_NONE, 
+	EE_FREQUENCY, EE_MINE_1, EE_NONE,     EE_NONE,   EE_NONE, 
+	EE_SHRINK,    EE_MINE_1, EE_NONE,     EE_NONE,   EE_NONE, 
 
-	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
-	EE_SHRINK,    EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
-	EE_SHRINK,    EE_SPIKES, EE_KNIVE,    EE_BAT,  EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE,   EE_NONE, 
+	EE_SHRINK,    EE_SPIKES, EE_KNIVE,    EE_SPRING, EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_SPRING, EE_NONE, 
+	EE_SHRINK,    EE_SPIKES, EE_KNIVE,    EE_BAT,    EE_NONE, 
 
-	EE_FREQUENCY, EE_MINE_2, EE_SHURIKEN, EE_NONE, EE_NONE, 
-	EE_SHRINK,    EE_MINE_2, EE_SHURIKEN, EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_MINE_2, EE_SHURIKEN, EE_NONE, EE_NONE, 
-	EE_SHRINK,    EE_MINE_2, EE_SHURIKEN, EE_BAT,  EE_NONE, 
+	EE_FREQUENCY, EE_MINE_2, EE_SHURIKEN, EE_NONE,   EE_NONE, 
+	EE_SHRINK,    EE_MINE_2, EE_SHURIKEN, EE_SPRING, EE_NONE, 
+	EE_FREQUENCY, EE_MINE_2, EE_SHURIKEN, EE_NONE,   EE_NONE, 
+	EE_SHRINK,    EE_MINE_2, EE_SHURIKEN, EE_BAT,    EE_NONE, 
 
-	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_BAT,  EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_SPRING, EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_GHOST,  EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_NONE,   EE_NONE, 
+	EE_FREQUENCY, EE_SPIKES, EE_KNIVE,    EE_BAT,    EE_NONE, 
 
-	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_NONE, EE_NONE, 
-	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_BAT,  EE_NONE, 
+	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_NONE,   EE_NONE, 
+	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_GHOST,  EE_GHOST, 
+	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_GHOST,  EE_GHOST, 
+	EE_FREQUENCY, EE_MINE_3, EE_SHURIKEN, EE_BAT,    EE_GHOST, 
 };
 
 struct Enemy
 {
 	char		py;
 	unsigned	px;
-	char		phase;
+	char		phase, pad;
 	EnemyType	type;
+	sbyte		vy, vx;
 
 }	enemies[3];
 
 char		nenemy;
-
-char		score[9];
-char		nstars;
-unsigned	scorecnt;
 
 const char doffset[9] = {39, 40, 41, 103, 104, 105, 167, 168, 169};
 
@@ -775,7 +1048,9 @@ inline void xspr_color(char sp, char color)
 void xspr_init(void)
 {
 	xspr_msb = 0;
-	vic.spr_enable = 0xff;	
+	vic.spr_expand_x = 0x00;
+	vic.spr_expand_y = 0x00;
+	vic.spr_enable = 0xff;
 }
 
 inline void score_draw(char ci)
@@ -814,7 +1089,7 @@ void score_add(char amount)
 
 void score_inc(void)
 {
-	scorecnt += 16 * nstars;
+	scorecnt += 32 * nstars;
 	if (scorecnt & 0xff00)
 	{
 		char	c = 5;
@@ -882,6 +1157,8 @@ void enemies_add(EnemyType type, char y)
 		enemies[nenemy].py = y;
 		enemies[nenemy].type = type;
 		enemies[nenemy].phase = 0;
+		enemies[nenemy].vx = 0;
+		enemies[nenemy].vy = 0;
 
 		switch (type)
 		{
@@ -919,6 +1196,14 @@ void enemies_add(EnemyType type, char y)
 				xspr_image(5 + nenemy, 112);
 				xspr_color(5 + nenemy, VCOL_BROWN);
 				break;
+			case ET_SPRING:
+				xspr_image(5 + nenemy, 116);
+				xspr_color(5 + nenemy, VCOL_LT_GREY);
+				break;
+			case ET_GHOST:
+				xspr_image(5 + nenemy, 120);
+				xspr_color(5 + nenemy, VCOL_LT_BLUE);
+				break;
 		}
 
 		xspr_move(5 + nenemy, enemies[nenemy].px, enemies[nenemy].py);
@@ -955,7 +1240,7 @@ void enemies_event(EnemyEvent ee)
 		enemies_add(ET_STAR, (ctop + cbottom) * 4 + 40);
 		break;
 	case EE_STAR_TOP:
-		enemies_add(ET_STAR, ctop * 8 + 50);
+		enemies_add(ET_STAR, ctop * 8 + 64);
 		break;
 	case EE_STAR_BOTTOM:
 		enemies_add(ET_STAR, cbottom * 8 + 30);
@@ -966,7 +1251,7 @@ void enemies_event(EnemyEvent ee)
 		break;
 
 	case EE_COIN_TOP:
-		enemies_add(ET_COIN, ctop * 8 + 50);
+		enemies_add(ET_COIN, ctop * 8 + 64);
 		break;
 
 	case EE_COIN_BOTTOM:
@@ -974,7 +1259,8 @@ void enemies_event(EnemyEvent ee)
 		break;
 
 	case EE_SPIKES:
-		enemies_add(ET_UPPER_SPIKE, ctop * 8 + 50);
+		if (ctop > 0)
+			enemies_add(ET_UPPER_SPIKE, ctop * 8 + 50);
 		enemies_add(ET_LOWER_SPIKE, cbottom * 8 + 37);
 		break;
 
@@ -996,6 +1282,13 @@ void enemies_event(EnemyEvent ee)
 		enemies_add(ET_BAT, 92 + (rand() & 127));
 		break;
 
+	case EE_SPRING:
+		enemies_add(ET_SPRING, cbottom * 8 + 37);
+		break;
+
+	case EE_GHOST:
+		enemies_add(ET_GHOST, 90);
+		break;
 	}
 }
 
@@ -1108,6 +1401,54 @@ void enemies_scroll(char n)
 						enemies[i].type = ET_NONE;
 					break;
 
+				case ET_SPRING:
+					if (enemies[i].px < asr4(player.px) + 32)
+					{
+						enemies[i].type = ET_SPRING_JUMP;
+						enemies[i].phase = -32;
+						xspr_image(5 + i, 117);
+					}
+					break;
+
+				case ET_SPRING_JUMP:
+					if (enemies[i].py > 20 && enemies[i].py < 250)
+					{
+						enemies[i].py += (sbyte)enemies[i].phase >> 2;
+						enemies[i].phase ++;
+					}
+					else
+						enemies[i].type = ET_NONE;
+					break;
+
+				case ET_GHOST:
+					xspr_image(5 + i, 120 + ((enemies[i].phase & 15) >> 2));
+					enemies[i].phase++;
+
+					if (enemies[i].px < asr4(player.px) + 24)
+					{
+						if (enemies[i].vx < 32)
+							enemies[i].vx++;
+					}
+					else
+					{
+						if (enemies[i].vx > -32)
+							enemies[i].vx--;
+					}
+
+					if (enemies[i].py < asr4(player.py) + 50)
+					{
+						if (enemies[i].vy < 32)
+							enemies[i].vy++;
+					}
+					else
+					{
+						if (enemies[i].vy > -32)
+							enemies[i].vy--;						
+					}
+
+					enemies[i].px += (enemies[i].vx + 8) >> 4;
+					enemies[i].py += (enemies[i].vy + 8) >> 4;
+					break;
 			}
 
 
@@ -1831,11 +2172,12 @@ void playfield_init(void)
 
 	ctop = 0;
 	cbottom = 25;
-	csize = 10;
+	csize = 0;
 
 	bimg = 0;
 	bcnt = 0;
 	cimg = 0;
+	cimgy = 8;
 	ccnt = 0;
 	cdist = 5;
 	cframe = true;
@@ -1937,6 +2279,17 @@ void game_state(GameState state)
 	switch (state)
 	{
 	case GS_START:
+		music_init(0);
+
+		playfield_initirqs();
+
+		xspr_init();
+
+		score_init();
+
+		// Switch screen
+		vic_waitBottom();
+		vic_setmode(VICM_TEXT_MC, Screen0, Font);
 		game_state(GS_READY);
 		break;
 
@@ -1960,8 +2313,12 @@ void game_state(GameState state)
 		break;
 
 	case GS_GAME_OVER:
-		game.count = 120;
+		highscore_show();
+		game_state(GS_START);
 		break;
+	default:
+		highscore_show();
+
 	}
 }
 
@@ -2041,7 +2398,7 @@ void game_loop()
 		else
 		{
 			xspr_move(1, 0, 0);
-			game_state(GS_READY);
+			game_state(GS_GAME_OVER);
 		}
 		break;
 	case GS_GAME_OVER:
@@ -2097,21 +2454,13 @@ int main(void)
 
 	tileset_init();
 
-	music_init();
+	// turn of third channel
+
+	*(char *)0xa176 = 0x4c;
 
 	sidfx_init();
 
-	playfield_initirqs();
-
-	xspr_init();
-
-	score_init();
-
 	game_state(GS_START);
-
-	// Switch screen
-	vic_waitBottom();
-	vic_setmode(VICM_TEXT_MC, Screen0, Font);
 
 	for(;;)		
 	{		
