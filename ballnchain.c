@@ -13,8 +13,12 @@
 #include <stdio.h>
 #include <audio/sidfx.h>
 
-#pragma region( main, 0x0a00, 0xa000, , , {code, data, bss, heap, stack} )
+#pragma region( main, 0x0a00, 0x9e00, , , {code, data, bss, heap} )
+#pragma region( stack, 0x9e00, 0xa000, , , {stack})
 
+#pragma section( xbss, 0, , , bss)
+
+#pragma region( xbss, 0x0400, 0x0800, , , {xbss})
 
 #pragma section( music, 0)
 
@@ -110,6 +114,7 @@ char		score[9];
 char		nstars;
 unsigned	scorecnt;
 
+#pragma bss(xbss)
 
 RIRQCode		irq_title[7], irq_title_hide, irq_title_show, irq_title_music;
 
@@ -119,6 +124,7 @@ char irq_title_y[7];
 char irq_title_s[7];
 char irq_title_x[4][7];
 char irq_title_msbx[7];
+
 
 byte * const DynSpriteChars[12] = {
 	DynSprites +   0, DynSprites +   1, DynSprites +   2,
@@ -130,6 +136,23 @@ byte * const DynSpriteChars[12] = {
 char	scr_column[25], col_column[25], scr_row[40];
 char	ctop, cbottom ,csize, bimg, bcnt, cimg, ccnt, cdist, cimgy;
 char	nrows;
+
+const char * 	title_tp;
+char			title_sy, title_ky, title_ty, title_by[8];
+char			title_delay;
+int				title_bx, title_cy;
+
+sbyte	title_vx[7];
+int		title_px[7];
+
+RIRQCode20		irq_top20, irq_bottom20;
+RIRQCode		irq_center, irq_music;
+
+RIRQCode	* const	irq_top = &irq_top20.c;
+RIRQCode	* const	irq_bottom = &irq_bottom20.c;
+
+
+#pragma bss(bss)
 
 static sbyte batyspeed[32] = {
 	-1, -1, -1, -2, -2, -3, -2, -2, -1, -1, -1, 0, 0, 0, 0, 0,
@@ -498,11 +521,6 @@ void titlescreen_string(char x, char y, const char * p)
 		titlescreen_char(x++, y, *p++);
 }
 
-const char * 	title_tp;
-char			title_sy, title_ky, title_ty, title_by[8];
-char			title_delay;
-int				title_bx, title_cy;
-
 void titlescreen_scroll_init(void)
 {
 	vic.spr_enable = 0xff;
@@ -620,9 +638,6 @@ bool titlescreen_scroll_step(void)
 
 	return title_ty < 6;
 }
-
-sbyte	title_vx[7];
-int		title_px[7];
 
 void titlescreen_scroll_clear(void)
 {
@@ -1855,6 +1870,16 @@ struct Playfield
 
 }	playfield;
 
+enum PowerUp
+{
+	PWUP_SHIELD,
+	PWUP_SLOWDOWN,
+	PWUP_MAGNET,
+	PWUP_BUBBLE,
+};
+
+static const char PowerUpColors[] = {VCOL_LT_GREY, VCOL_GREEN, VCOL_YELLOW, VCOL_LT_BLUE};
+
 #define ET_BALL_COLLISION	0x10
 #define ET_PLAYER_COLLISION	0x20
 #define ET_LETHAL			0x40
@@ -1865,6 +1890,8 @@ enum EnemyType
 	ET_EXPLODE = 1,
 	ET_RISING_STAR = 2,
 	ET_DROPPING_COIN = 3,
+	ET_EXPLODE_POWERUP = 4,
+	ET_POWERUP_ESCAPE = 5,
 
 	ET_MINE = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 2,
 	ET_STAR = ET_BALL_COLLISION + ET_PLAYER_COLLISION + 3,
@@ -1881,6 +1908,8 @@ enum EnemyType
 	ET_SPRING = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 11,
 	ET_SPRING_JUMP = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 12,
 	ET_GHOST = ET_BALL_COLLISION + ET_PLAYER_COLLISION + ET_LETHAL + 13,
+
+	ET_POWERUP = ET_PLAYER_COLLISION + 14
 };
 
 enum EnemyEvent
@@ -1954,11 +1983,32 @@ char		nenemy;
 
 const char doffset[9] = {39, 40, 41, 103, 104, 105, 167, 168, 169};
 
-RIRQCode20		irq_top20, irq_bottom20;
-RIRQCode		irq_center, irq_music;
+// Game state
+enum GameState
+{
+	GS_TITLE,			// Show title screen
 
-RIRQCode	* const	irq_top = &irq_top20.c;
-RIRQCode	* const	irq_bottom = &irq_bottom20.c;
+	GS_START,			// Waiting for the game to start
+
+	GS_READY,			// Getting ready
+
+	GS_PLAYING,			// Actually playing
+	GS_EXPLODING,		// Player ship is exploding
+
+	GS_GAME_OVER		// Game is over
+};
+
+// Game data
+struct Game
+{
+	GameState	state;	// Current game state	
+	char		count;	// Countdown for states that change after delay
+	bool		pulling, throw;
+	char		level;
+	char		shield, bubble, magnet;
+
+}	game;
+
 
 // top IRQ: line 58
 // set enemy sprites, 3 * (color, ylow, xlow), xhigh, mcolor
@@ -2408,6 +2458,40 @@ void enemies_scroll(char n)
 						enemies[i].type = ET_NONE;
 						xspr_move(5 + i, 0, 0);
 					}
+					break;					
+
+				case ET_EXPLODE_POWERUP:
+					xspr_image(5 + i, 88 + enemies[i].phase);
+					enemies[i].phase++;
+					if (enemies[i].phase == 17)
+					{
+						enemies[i].type = ET_POWERUP_ESCAPE;
+						xspr_image(5 + i, 118);						
+					}
+					break;
+
+				case ET_POWERUP_ESCAPE:
+					enemies[i].px += 4;
+					if (enemies[i].px > asr4(player.px) + 64)
+					{
+						enemies[i].type = ET_POWERUP;
+						enemies[i].phase = 40;
+						enemies[i].vx = rand() & 3;						
+						xspr_image(5 + i, 124);
+						xspr_color(5 + i, PowerUpColors[(PowerUp)enemies[i].vx]);
+					}
+					break;
+
+				case ET_POWERUP:
+					enemies[i].px += 2;
+					enemies[i].py += (sintab64[enemies[i].phase & 63] + 16) >> 5;
+					xspr_image(5 + i, 124 + ((enemies[i].phase & 15) >> 2));
+					enemies[i].phase++;
+					if (enemies[i].px >= 344 || enemies[i].py < 20)
+					{
+						enemies[i].type = ET_NONE;
+						xspr_move(5 + i, 0, 0);
+					}
 					break;
 
 				case ET_RISING_STAR:
@@ -2443,6 +2527,33 @@ void enemies_scroll(char n)
 				case ET_COIN:
 					xspr_image(5 + i, 108 + ((enemies[i].phase & 15) >> 2));
 					enemies[i].phase++;
+					if (game.magnet)
+					{
+						if (enemies[i].px < asr4(player.px) + 32)
+						{
+							if (enemies[i].vx < 16)
+								enemies[i].vx++;
+						}
+						else
+						{
+							if (enemies[i].vx > -16)
+								enemies[i].vx--;
+						}
+
+						if (enemies[i].py < asr4(player.py) + 58)
+						{
+							if (enemies[i].vy < 16)
+								enemies[i].vy++;
+						}
+						else
+						{
+							if (enemies[i].vy > -16)
+								enemies[i].vy--;						
+						}
+
+						enemies[i].px += (enemies[i].vx + 2) >> 2;
+						enemies[i].py += (enemies[i].vy + 2) >> 2;
+					}
 					break;
 
 				case ET_KNIFE:
@@ -2848,36 +2959,15 @@ inline unsigned usquare(int i)
 }
 
 
-// Game state
-enum GameState
-{
-	GS_TITLE,			// Show title screen
-
-	GS_START,			// Waiting for the game to start
-
-	GS_READY,			// Getting ready
-
-	GS_PLAYING,			// Actually playing
-	GS_EXPLODING,		// Player ship is exploding
-
-	GS_GAME_OVER		// Game is over
-};
-
-// Game data
-struct Game
-{
-	GameState	state;	// Current game state	
-	char		count;	// Countdown for states that change after delay
-	bool		pulling, throw;
-	char		level;
-
-}	game;
-
 void game_init(void)
 {
 	game.level = 0;
 	game.pulling = false;
 	game.throw = false;
+
+	game.shield = 0;
+	game.bubble = 0;
+	game.magnet = 0;
 
 	for(char i=0; i<64; i++)
 	{
@@ -2957,7 +3047,7 @@ void player_init(void)
 	game.pulling = false;
 	game.throw = false;
 
-	xspr_image(0, 64); xspr_color(0, VCOL_RED);
+	xspr_image(0, 64); xspr_color(0, VCOL_ORANGE);
 	xspr_image(1, 76); xspr_color(1, VCOL_MED_GREY);
 	xspr_image(2, 77); xspr_color(2, VCOL_YELLOW);
 	xspr_image(3, 77); xspr_color(3, VCOL_YELLOW);
@@ -3106,6 +3196,29 @@ EnemyType player_collision(void)
 						enemies[i].phase = 248;
 						sidfx_play(2, SIDFXStar, 4);
 					}
+					else if (explode == ET_POWERUP)
+					{
+						switch ((PowerUp)enemies[i].vx)
+						{
+							case PWUP_SLOWDOWN:
+								playfield.vx = (playfield.vx + 16) >> 1;
+								break;
+							case PWUP_SHIELD:
+								game.shield = 255;
+								xspr_color(0, VCOL_LT_GREY);
+								break;
+							case PWUP_MAGNET:
+								game.magnet = 255;
+								break;
+							case PWUP_BUBBLE:
+								game.bubble = 255;
+								xspr_color(1, VCOL_LT_BLUE);								
+								break;
+						}
+
+						enemies[i].type = ET_NONE;
+						xspr_move(i + 5, 0, 0);
+					}
 					else	
 					{
 						enemies[i].type = ET_EXPLODE;
@@ -3143,7 +3256,11 @@ bool ball_collision(void)
 			{
 				if (bix + 24 > enemies[i].px && bix < enemies[i].px + 24)
 				{
-					enemies[i].type = ET_EXPLODE;
+					if (enemies[i].type & ET_LETHAL)
+						enemies[i].type = ET_EXPLODE_POWERUP;
+					else
+						enemies[i].type = ET_EXPLODE;
+
 					enemies[i].phase = 0;
 					sidfx_play(2, SIDFXExplosion, 1);
 				}
@@ -3193,17 +3310,25 @@ void player_physics(void)
 	player.vy += 16;
 
 #if 1
-	if (ball.vx > 0)
-		ball.vx -= asr4(ball.vx + 15);
-	else if (ball.vx < 0)
-		ball.vx -= asr4(ball.vx);
+	if (game.bubble)
+	{
+		ball.vx -= (ball.vx + 2) >> 2;
+		ball.vy -= (ball.vy + 2) >> 2;
+	}
+	else
+	{
+		if (ball.vx > 0)
+			ball.vx -= asr4(ball.vx + 15);
+		else if (ball.vx < 0)
+			ball.vx -= asr4(ball.vx);
 
-	if (ball.vy > 0)
-		ball.vy -= asr4(ball.vy + 15);
-	else if (ball.vy < 0)
-		ball.vy -= asr4(ball.vy);
+		if (ball.vy > 0)
+			ball.vy -= asr4(ball.vy + 15);
+		else if (ball.vy < 0)
+			ball.vy -= asr4(ball.vy);
 
-	ball.vy += 32;
+		ball.vy += 32;
+	}
 #else
 	if (ball.vx > 0)
 		ball.vx -= (ball.vx + 7) >> 3;
@@ -3248,8 +3373,10 @@ void chain_physics(void)
 			int		fx = dx < 0 ? -lmuldiv8by8(-dx, t, r) : lmuldiv8by8(dx, t, r);
 			int		fy = dy < 0 ? -lmuldiv8by8(-dy, t, r) : lmuldiv8by8(dy, t, r);
 #if 1
-			int		bx = fx * ball.weight;
-			int		by = fy * ball.weight;
+			char 	weight = game.bubble ? 1 : ball.weight;
+
+			int		bx = fx * weight;
+			int		by = fy * weight;
 
 			player.vx += bx;
 			player.vy += by;
@@ -3481,6 +3608,24 @@ void game_loop()
 			game.count = 150;
 		}
 
+		if (game.count & 1)
+		{
+			if (game.magnet)
+				game.magnet--;
+			if (game.shield)
+			{
+				game.shield--;
+				if (game.shield < 32)
+					xspr_color(0, game.shield & 2 ? VCOL_LT_GREY : VCOL_ORANGE);
+			}
+			if (game.bubble)
+			{
+				game.bubble--;
+				if (game.bubble < 32)
+					xspr_color(1, game.bubble & 2 ? VCOL_LT_BLUE : VCOL_MED_GREY);			
+			}
+		}
+
 		vic_waitBottom();
 
 		player_show();
@@ -3491,6 +3636,14 @@ void game_loop()
 		ball_collision();
 
 		et = player_collision();
+
+		if (game.shield && (et & ET_LETHAL))
+		{
+			game.shield = 0;
+			et = ET_NONE;
+			xspr_color(0, VCOL_ORANGE);
+		}
+
 		if (et & ET_LETHAL)
 			game_state(GS_EXPLODING);
 		else
