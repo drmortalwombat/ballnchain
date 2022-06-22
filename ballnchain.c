@@ -7,10 +7,11 @@
 #include <c64/cia.h>
 #include <math.h>
 #include <fixmath.h>
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
+#include <oscar.h>
 #include <audio/sidfx.h>
 
 #pragma region( main, 0x0a00, 0x9e00, , , {code, data, bss, heap} )
@@ -47,7 +48,7 @@ char spriteset[4095] = {
 #pragma data(data)
 
 char charset_center[] = {
-	#embed rle "ballnchain_center - Chars.bin"
+	#embed lzo "ballnchain_center - Chars.bin"
 };
 
 char tileset_center[] = {
@@ -59,7 +60,7 @@ char charattribs_center[] = {
 }
 
 char charset_bottom[] = {
-	#embed rle "ballnchain_bottom - Chars.bin"
+	#embed lzo "ballnchain_bottom - Chars.bin"
 };
 
 char tileset_bottom[] = {
@@ -79,9 +80,9 @@ char charset_digits[] = {
 };
 
 char titlescreen[] = {
-	#embed 8000    0 rle "titlesketch.bin"
-	#embed 1000 8000 rle "titlesketch.bin"
-	#embed 1000 9000 rle "titlesketch.bin"
+	#embed 8000    0 lzo "titlesketch.bin"
+	#embed 1000 8000 lzo "titlesketch.bin"
+	#embed 1000 9000 lzo "titlesketch.bin"
 }
 
 byte * const Screen0 = (byte *)0xc800;
@@ -107,7 +108,11 @@ byte	sqrtabl[256], sqrtabh[256];
 #pragma align(sqrtabl, 256)
 #pragma align(sqrtabh, 256)
 
-bool	cframe;
+bool		ntsc;
+char		music56, physics56;
+char		maxvx, minvx;
+
+bool		cframe;
 byte	*	cscreen;
 
 char		score[9];
@@ -133,9 +138,10 @@ byte * const DynSpriteChars[12] = {
 	DynSprites + 384, DynSprites + 385, DynSprites + 386
 };
 
-char	scr_column[25], col_column[25], scr_row[40];
-char	ctop, cbottom ,csize, bimg, bcnt, cimg, ccnt, cdist, cimgy;
-char	nrows;
+__zeropage char	scr_column[25], col_column[25];
+
+char		 scr_row[40];
+__zeropage char	ctop, cbottom ,csize, bimg, bcnt, cimg, ccnt, cdist, cimgy;
 
 const char * 	title_tp;
 char			title_sy, title_ky, title_ty, title_by[8];
@@ -297,9 +303,17 @@ void music_init(char tune)
 
 void music_play(void)
 {
-	__asm
+	if (ntsc && music56 == 5)
 	{
-		jsr		$a003
+		music56 = 0;
+	}
+	else
+	{
+		music56++;
+		__asm
+		{
+			jsr		$a003
+		}
 	}
 }
 
@@ -311,6 +325,21 @@ void music_patch_volume(char vol)
 void music_patch_voice3(bool enable)
 {
 	*(char *)0xa10c = enable ? 0x20 : 0x4c;
+}
+
+__zeropage unsigned zseed;
+
+void zrand(void)
+{
+    zseed ^= zseed << 7;
+    zseed ^= zseed >> 9;
+    zseed ^= zseed << 8;
+}
+
+static inline unsigned frand()
+{
+	zrand();
+	return zseed;
 }
 
 char darker[16] = {
@@ -396,59 +425,6 @@ __interrupt void titlescreen_irqx(void)
 	Screen1[0x3f8 + 7] = s + 7;
 }
 
-const char * rle_decode(char * dp, const char * sp)
-{
-	char cmd = sp[0];
-
-	do
-	{
-		if (cmd & 0x80)
-		{
-			char rep = (cmd & 0x70) >> 4;
-			char	c = sp[1];
-			for(sbyte i=rep; i>=0; i--)
-				dp[i] = c;
-
-			rep++;
-			sp += 2;
-			dp += rep;
-
-			cmd &= 0x0f;
-			for(sbyte i=cmd; i>=0; i--)
-				dp[i] = sp[i];
-
-			cmd++;
-			sp += cmd;
-			dp += cmd;
-		}
-		else if (cmd & 0x40)
-		{
-			cmd &= 0x3f;
-			sp ++;
-			for(sbyte i=cmd; i>=0; i--)
-				dp[i] = sp[i];
-
-			cmd++;
-			sp += cmd;
-			dp += cmd;
-		}
-		else
-		{
-			char	c = sp[1];
-			for(sbyte i=cmd; i>=0; i--)
-				dp[i] = c;
-
-			cmd++;
-			sp += 2;
-			dp += cmd;
-		}
-
-		cmd = sp[0];
-
-	} while (cmd)
-
-	return sp + 1;
-}
 
 void titlescreen_char(char x, char y, char c)
 {
@@ -728,10 +704,10 @@ bool titlescreen_highscore_step(void)
 		{
 			if (x < -24 || x > 344)
 			{
-				irq_title_x[j][i] = 254;
+				irq_title_x[j][i] = 200;
 				msb |= 0x11 << j;				
 			}
-			else if (x < 0)
+			else if (!ntsc && x < 0)
 			{
 				irq_title_x[j][i] = x - 8;
 				msb |= 0x11 << j;
@@ -811,11 +787,15 @@ void titlescreen_credits_init(void)
 		irq_title_y[i] = 110 + 25 * i;
 		irq_title_s[i] = 8 * i;
 		irq_title_msbx[i] = 0xff;
-		irq_title_x[0][i] = 254;
-		irq_title_x[1][i] = 254;
-		irq_title_x[2][i] = 254;
-		irq_title_x[3][i] = 254;
+		irq_title_x[0][i] = 200;
+		irq_title_x[1][i] = 200;
+		irq_title_x[2][i] = 200;
+		irq_title_x[3][i] = 200;
 	}
+
+	rirq_build(&irq_title_hide, 1);
+	rirq_write(&irq_title_hide, 0, &vic.color_border, VCOL_BLACK);
+	rirq_set(2, 250, &irq_title_hide);
 
 	// sort the raster IRQs
 	rirq_sort();
@@ -859,6 +839,8 @@ bool titlescreen_credits_step(void)
 			vic.spr_color[2] = 
 			vic.spr_color[3] = credits[k].color;
 		}
+
+		vic_waitTop();
 		break;
 	case 1:
 	case 3:
@@ -888,10 +870,10 @@ bool titlescreen_credits_step(void)
 				{
 					if (x < -24 || x > 344)
 					{
-						irq_title_x[j][i] = 254;
+						irq_title_x[j][i] = 200;
 						msb |= 0x11 << j;				
 					}
-					else if (x < 0)
+					else if (!ntsc && x < 0)
 					{
 						irq_title_x[j][i] = x - 8;
 						msb |= 0x11 << j;
@@ -912,7 +894,7 @@ bool titlescreen_credits_step(void)
 				irq_title_msbx[i] = msb;
 
 				unsigned	ty =  (title_cy >> 1) + 25 * i;
-				if (ty > 0 && ty < 245)
+				if (ty > 23 && ty < 245)
 					rirq_set(i, ty, irq_title + i);
 				else
 					rirq_clear(i);
@@ -1008,15 +990,15 @@ void titlescreen_balls_init(void)
 		if (i & 1)
 		{
 			titleBalls[i].px = 0;
-			titleBalls[i].dx = (rand() & 31) + 8;
+			titleBalls[i].dx = (frand() & 31) + 8;
 		}
 		else
 		{
 			titleBalls[i].px = 344 * 16;
-			titleBalls[i].dx = - 8 - (rand() & 31);
+			titleBalls[i].dx = - 8 - (frand() & 31);
 		}
 
-		titleBalls[i].py = (rand() & 1023) + 800;
+		titleBalls[i].py = (frand() & 1023) + 800;
 		titleBalls[i].dy = 0;
 	}
 
@@ -1044,8 +1026,8 @@ bool titlescreen_balls_step(void)
 		if (dx < 0 && x < 0)
 		{
 			x = 344 * 16;
-			dx = - 8 - (rand() & 31);
-			y = (rand() & 1023) + 800;
+			dx = - 8 - (frand() & 31);
+			y = (frand() & 1023) + 800;
 			dy = 0;
 
 			if (++title_delay >= 32)
@@ -1054,8 +1036,8 @@ bool titlescreen_balls_step(void)
 		else if (dx > 0 && x > 344 * 16)
 		{
 			x = 0;
-			dx = (rand() & 31) + 8;
-			y = (rand() & 1023) + 800;
+			dx = (frand() & 31) + 8;
+			y = (frand() & 1023) + 800;
 			dy = 0;						
 
 			if (++title_delay >= 32)
@@ -1211,9 +1193,9 @@ void titlescreen_show(void)
 
 	const char * sp = titlescreen;
 
-	sp = rle_decode(Font, sp);
-	sp = rle_decode(Screen1, sp);
-	sp = rle_decode(Color, sp);
+	sp = oscar_expand_lzo(Font, sp);
+	sp = oscar_expand_lzo(Screen1, sp);
+	sp = oscar_expand_lzo(Color, sp);
 
 	vic.spr_enable = 0x00;
 
@@ -1226,12 +1208,16 @@ void titlescreen_show(void)
 	title_delay = 0;
 	TitleScreenAnim	anim = TSA_INTRO_TEXT_0;
 
+	// anim = TSA_CREDITS_0;
+
 	rirq_sort();
 
 	// start raster IRQ processing
 	rirq_start();
 
 	do {
+		frand();
+
 		switch (anim)
 		{
 		case TSA_NONE:
@@ -1339,6 +1325,7 @@ void titlescreen_show(void)
 		music_play();
 
 		joy_poll(0);
+
 	} while (!joyb[0]);
 
 	switch (anim)
@@ -1397,13 +1384,19 @@ void titlescreen_show(void)
 	sid.voices[0].ctrl = 0;
 	sid.voices[1].ctrl = 0;
 	sid.voices[2].ctrl = 0;
+
+	while (joyb[0])
+	{
+		joy_poll(0);
+		frand();
+	}	
 }
 
 void column_down(void)
 {
-	for(char i=0; i<5; i++)
+	for(char i=ntsc ? 3 : 5; i>0; i--)
 	{
-		char j = (rand() >> 8) & 15;
+		char j = (frand() >> 8) & 15;
 		char x = scr_row[j];
 		while (j < 39)
 		{
@@ -1461,9 +1454,9 @@ bool highscore_show(void)
 	}
 
 	if (hi == 5)		
-		music_init(rand() & 1 ? 3 : 4);
+		music_init(frand() & 1 ? 3 : 4);
 	else
-		music_init(rand() & 1 ? 2 : 5);
+		music_init(frand() & 1 ? 2 : 5);
 
 	if (cframe)
 		memcpy(Screen1, Screen0, 1000);
@@ -1725,7 +1718,8 @@ SIDFX	SIDFXExplosion[1] = {{
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_1500,
 	-20, 0,
-	8, 40
+	8, 40,
+	5
 }};
 
 SIDFX	SIDFXPlayerExplosion[4] = {{
@@ -1734,28 +1728,32 @@ SIDFX	SIDFXPlayerExplosion[4] = {{
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_1500,
 	0, 0,
-	2, 0
+	2, 0,
+	10
 },{
 	300, 1000, 
 	SID_CTRL_GATE | SID_CTRL_NOISE,
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_1500,
 	100, 0,
-	8, 0
+	8, 0,
+	10
 },{
 	1000, 1000, 
 	SID_CTRL_GATE | SID_CTRL_NOISE,
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_1500,
 	200, 0,
-	4, 20
+	4, 20,
+	10
 },{
 	2000, 1000, 
 	SID_CTRL_NOISE,
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_1500,
 	0, 0,
-	0, 40
+	0, 40,
+	10
 }};
 
 SIDFX	SIDFXBoing[1] = {{
@@ -1764,7 +1762,50 @@ SIDFX	SIDFXBoing[1] = {{
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_750,
 	-80, -40,
-	4, 60
+	4, 60,
+	1
+}};
+
+SIDFX	SIDFXKatching[5] = {{
+	NOTE_C(10), 512, 
+	SID_CTRL_GATE | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_114,
+	0x80  | SID_DKY_114,
+	0, 0,
+	1, 0,
+	2
+},{
+	NOTE_C(9), 512, 
+	SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_114,
+	0x80  | SID_DKY_114,
+	0, 0,
+	1, 0,
+	2
+},{
+	NOTE_G(10), 512, 
+	SID_CTRL_GATE | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_114,
+	0x80  | SID_DKY_114,
+	0, 0,
+	1, 0,
+	2
+},{
+	NOTE_G(9), 512, 
+	SID_CTRL_NOISE,
+	SID_ATK_2 | SID_DKY_114,
+	0x80  | SID_DKY_114,
+	0, 0,
+	1, 0,
+	2
+},{
+	NOTE_E(10), 512, 
+	SID_CTRL_GATE | SID_CTRL_RECT,
+	SID_ATK_2 | SID_DKY_750,
+	0xf0  | SID_DKY_750,
+	0, 16,
+	4, 60,
+	2
 }};
 
 SIDFX	SIDFXStar[4] = {{
@@ -1773,28 +1814,32 @@ SIDFX	SIDFXStar[4] = {{
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_6,
 	0, 0,
-	1, 0
+	1, 0,
+	4
 },{
 	NOTE_E(8), 3072, 
 	SID_CTRL_GATE | SID_CTRL_SAW,
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_6,
 	0, 0,
-	1, 0
+	1, 0,
+	4
 },{
 	NOTE_G(8), 3072, 
 	SID_CTRL_GATE | SID_CTRL_SAW,
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_6,
 	0, 0,
-	1, 0
+	1, 0,
+	4
 },{
 	NOTE_C(9), 3072, 
 	SID_CTRL_GATE | SID_CTRL_SAW,
 	SID_ATK_2 | SID_DKY_6,
 	0xf0  | SID_DKY_300,
 	0, 0,
-	4, 32
+	4, 32,
+	4
 }};
 
 SIDFX	SIDFXShuriken[4] = {{
@@ -1804,6 +1849,7 @@ SIDFX	SIDFXShuriken[4] = {{
 	0xf0  | SID_DKY_168,
 	-400, 0,
 	6, 0,
+	7
 },{
 	8000, 3072, 
 	SID_CTRL_GATE | SID_CTRL_NOISE,
@@ -1811,6 +1857,7 @@ SIDFX	SIDFXShuriken[4] = {{
 	0xc0  | SID_DKY_168,
 	-500, 0,
 	6, 0,
+	7
 },{
 	8000, 3072, 
 	SID_CTRL_GATE | SID_CTRL_NOISE,
@@ -1818,13 +1865,15 @@ SIDFX	SIDFXShuriken[4] = {{
 	0xa0  | SID_DKY_168,
 	-600, 0,
 	5, 0,
+	3
 },{
 	8000, 3072, 
 	SID_CTRL_GATE | SID_CTRL_NOISE,
 	SID_ATK_2 | SID_DKY_6,
 	0x80  | SID_DKY_750,
 	-800, 0,
-	1, 8
+	1, 8,
+	3
 }};
 
 
@@ -1861,12 +1910,19 @@ static inline int asr4(int v)
 	return (asrtab4[hv] << 8) | (asltab4[hv] | lsrtab4[lv]);
 }
 
-struct Playfield
+enum PlayfieldState
 {
-	char	px, vx;
-	char	cx;
-	bool	scrolled;
-	char	wsize, wfreq;
+	PPHASE_IDLE,
+	PPHASE_SCROLLED,
+	PPHASE_COPIED
+};
+
+__zeropage struct Playfield
+{
+	char			px, vx;
+	char			cx;
+	PlayfieldState	phase;
+	char			wsize, wfreq;
 
 }	playfield;
 
@@ -2020,13 +2076,13 @@ struct Game
 // bottom IRQ: line 250
 // set score sprites, 3 * (color, ylow, xlow), xhigh, mcolor, xexpand
 
-char	xspr_msb;
+__zeropage	char	xspr_msb;
 
 void playfield_init_font(void)
 {
-	rle_decode(Font, charset_center);
+	oscar_expand_lzo(Font, charset_center);
 	memcpy(Font + 0xc0 * 8, charset_front, 64 * 8)
-	rle_decode(FontBottom, charset_bottom);
+	oscar_expand_lzo(FontBottom, charset_bottom);
 	memcpy(FontBottom + 0xc0 * 8, charset_front, 64 * 8)
 	memset(DynSprites, 0, 2048);
 
@@ -2129,6 +2185,25 @@ inline void xspr_move(char sp, int xpos, int ypos)
 	else
 		xspr_msb &= ~(1 << sp);
 
+	rirq_data(irq_top, 15, xspr_msb);
+	rirq_data(irq_bottom, 15, xspr_msb & 0x1f | 0x80);
+}
+
+inline void xspr_move_prep(char sp, int xpos, int ypos)
+{
+	__assume(sp < 8);
+
+	vic.spr_pos[sp].y = ypos;
+	vic.spr_pos[sp].x = xpos;
+
+	if (xpos & 0x100)
+		xspr_msb |= 1 << sp;
+	else
+		xspr_msb &= ~(1 << sp);
+}
+
+inline void xspr_move_done(void)
+{
 	rirq_data(irq_top, 15, xspr_msb);
 	rirq_data(irq_bottom, 15, xspr_msb & 0x1f | 0x80);
 }
@@ -2403,7 +2478,7 @@ void enemies_event(EnemyEvent ee)
 		break;
 
 	case EE_BAT:
-		enemies_add(ET_BAT, 92 + (rand() & 127));
+		enemies_add(ET_BAT, 92 + (frand() & 127));
 		break;
 
 	case EE_SPRING:
@@ -2471,19 +2546,19 @@ void enemies_scroll(char n)
 					break;
 
 				case ET_POWERUP_ESCAPE:
-					enemies[i].px += 4;
-					if (enemies[i].px > asr4(player.px) + 64)
+					enemies[i].px += 4 + n;
+					if (enemies[i].px > asr4(player.px) + 32)
 					{
 						enemies[i].type = ET_POWERUP;
 						enemies[i].phase = 40;
-						enemies[i].vx = rand() & 3;						
+						enemies[i].vx = frand() & 3;						
 						xspr_image(5 + i, 124);
 						xspr_color(5 + i, PowerUpColors[(PowerUp)enemies[i].vx]);
 					}
 					break;
 
 				case ET_POWERUP:
-					enemies[i].px += 2;
+					enemies[i].px += 1 + n;
 					enemies[i].py += (sintab64[enemies[i].phase & 63] + 16) >> 5;
 					xspr_image(5 + i, 124 + ((enemies[i].phase & 15) >> 2));
 					enemies[i].phase++;
@@ -2678,7 +2753,7 @@ void playfield_column(void)
 	for(char i=1; i<17; i++)
 		scr_column[i] = 0xc0;
 
-	unsigned q = rand();
+	unsigned q = frand();
 	scr_column[1 + (char)(q & 15)] = 0xc9 + ((char)q >> 5);
 	q >>= 8;
 	scr_column[4 + (char)(q & 15)] = 0xc9 + ((char)q >> 5);
@@ -2697,7 +2772,7 @@ void playfield_column(void)
 	bcnt++;
 	if (bcnt == 8)
 	{
-		bimg = (bimg + (rand() & 3) + 1) & 7;
+		bimg = (bimg + (frand() & 3) + 1) & 7;
 		bcnt = 0;
 	}
 
@@ -2705,36 +2780,36 @@ void playfield_column(void)
 	{
 		if (cdist == 0)
 		{
-			if (rand() & 3)
+			if (frand() & 3)
 			{
-				ctop = (rand() & 15) + 2;
-				cbottom = ctop + playfield.wsize + (rand() & 3);
+				ctop = (frand() & 15) + 2;
+				cbottom = ctop + playfield.wsize + (frand() & 3);
 				if (cbottom > 23)
 				{
 					ctop -= cbottom - 23;
 					cbottom = 23;
 				}
 
-				enemies_event(eventMatrix[rand() & 63]);
+				enemies_event(eventMatrix[frand() & 63]);
 			}
 			else
 			{
-				cbottom = rand() & 7;
-				ctop = cbottom + 8 + 2 * (rand() & 3);
+				cbottom = frand() & 7;
+				ctop = cbottom + 8 + 2 * (frand() & 3);
 			}
 			csize = 5;
-			cdist = (playfield.wfreq + (rand() & 7)) >> 1;
+			cdist = (playfield.wfreq + (frand() & 7)) >> 1;
 		}
 		else
 		{
-			cimg = (rand() & 255) & 15;
+			cimg = (frand() & 255) & 15;
 			ccnt = 0;
 			cdist--;
-			cimgy = ctileybase[cimg] + (rand() & ctileymask[cimg]);
+			cimgy = ctileybase[cimg] + (frand() & ctileymask[cimg]);
 
 			ctop = 0;
 			cbottom = 25;
-			enemies_event(eventMatrix[rand() & 63]);
+			enemies_event(eventMatrix[frand() & 63]);
 		}
 	}
 
@@ -2772,7 +2847,7 @@ void playfield_column(void)
 				for(char i=ctop-1; i>0; i--)
 				{
 					scr_column[i] = 0xe0 + (j & 3) * 4 + (4 - csize);
-					col_column[i] = 9;
+//					col_column[i] = 9;
 					j--;
 				}
 				scr_column[0] = 0xf0 + (j & 3) * 4 + (4 - csize);
@@ -2787,7 +2862,7 @@ void playfield_column(void)
 			for(char i=cbottom; i<25; i++)
 			{
 				scr_column[i] = 0xe0 + (j & 3) * 4 + (4 - csize);
-				col_column[i] = 9;
+//				col_column[i] = 9;
 				j++;
 			}
 		}
@@ -2797,7 +2872,7 @@ void playfield_column(void)
 			for(char i=cbottom; i<ctop; i++)
 			{
 				scr_column[i] = 0xe0 + (j & 3) * 4 + (4 - csize);
-				col_column[i] = 9;
+//				col_column[i] = 9;
 				j++;
 			}
 
@@ -2823,16 +2898,24 @@ void playfield_column(void)
 
 void playfield_scroll0(void)
 {
-	for(char x=0; x<39; x++)
+	for(sbyte x=12; x>=0; x--) 
 	{
 	#assign ry 0
 	#repeat		
-		Screen0[40 * ry + x] = Screen1[40 * ry + x + 1];
+		#assign rx 0
+		#repeat
+			Screen0[40 * ry + 13 * rx + x] = Screen1[40 * ry + 13 * rx + x + 1];
+		#assign rx rx + 1
+		#until rx == 3
 	#assign ry ry + 1
 	#until ry == 25
+	}
 	#undef ry
-	}	
+	#undef rx
+}
 
+void playfield_column0(void)
+{
 	#assign ry 0
 	#repeat		
 		Screen0[40 * ry + 39] = scr_column[ry];
@@ -2843,16 +2926,24 @@ void playfield_scroll0(void)
 
 void playfield_scroll1(void)
 {
-	for(char x=0; x<39; x++)
+	for(sbyte x=12; x>=0; x--) 
 	{
 	#assign ry 0
 	#repeat		
-		Screen1[40 * ry + x] = Screen0[40 * ry + x + 1];
+		#assign rx 0
+		#repeat
+			Screen1[40 * ry + 13 * rx + x] = Screen0[40 * ry + 13 * rx + x + 1];
+		#assign rx rx + 1
+		#until rx == 3
 	#assign ry ry + 1
 	#until ry == 25
+	}
 	#undef ry
-	}	
+	#undef rx
+}
 
+void playfield_column1(void)
+{
 	#assign ry 0
 	#repeat		
 		Screen1[40 * ry + 39] = scr_column[ry];
@@ -2877,14 +2968,16 @@ void playfield_fill(void)
 
 void playfield_scrollc(void)
 {
+//	vic.color_border = 1;
 	for(char x=0; x<39; x++)
 	{
-	#assign ry 0
+	#assign ry 5
 	#repeat		
 		Color[40 * ry + x] = Color[40 * ry + x + 1];
 	#assign ry ry + 1
-	#until ry == 6
+	#until ry == 8
 	}
+//	vic.color_border = 2;
 
 	for(char x=0; x<39; x++)
 	{
@@ -2893,15 +2986,19 @@ void playfield_scrollc(void)
 	#assign ry ry + 1
 	#until ry == 12
 	}
+//	vic.color_border = 3;
 
 	for(char x=0; x<39; x++)
 	{
 	#repeat		
 		Color[40 * ry + x] = Color[40 * ry + x + 1];
 	#assign ry ry + 1
-	#until ry == 18
+	#until ry == 16
 	}
 
+//	vic.color_border = 0;
+
+#if 0
 	for(char x=0; x<39; x++)
 	{
 	#repeat		
@@ -2910,13 +3007,39 @@ void playfield_scrollc(void)
 	#until ry == 25
 	#undef ry
 	}
+#endif
 
-	#assign ry 0
+	#assign ry 1
 	#repeat		
 		Color[40 * ry + 39] = col_column[ry];
 	#assign ry ry + 1
-	#until ry == 25
+	#until ry == 16
 	#undef ry
+}
+
+unsigned tsqrt(unsigned n)
+{
+    unsigned p, q, r, h
+
+    p = 0;
+    r = n;
+
+#assign q 0x4000
+#repeat
+    {
+        h = p | q;
+        p >>= 1;
+        if (r >= h)
+        {
+            p |= q;
+            r -= h;
+        } 
+    }
+#assign q q >> 2
+#until q == 0
+#undef q
+
+    return p;
 }
 
 unsigned usqrt(unsigned n)
@@ -3020,12 +3143,12 @@ void game_level(void)
 				break;
 
 			default:
-				eventMatrix[rand() & 63] = ee;
+				eventMatrix[frand() & 63] = ee;
 		}
 
 
 		game.level++;
-		if ((game.level & 1) && playfield.vx < 64)
+		if ((game.level & 1) && playfield.vx < maxvx)
 			playfield.vx++;
 	}
 }
@@ -3064,11 +3187,13 @@ void player_show(void)
 	int ix1 = (pix + ix2) >> 1, iy1 = (piy + iy2) >> 1;
 	int ix3 = (ix2 + bix) >> 1, iy3 = (iy2 + biy) >> 1;
 
-	xspr_move(0, pix + (24 - 8), piy + (50 - 8));
-	xspr_move(1, bix + (24 - 12), biy + (50 - 12));
-	xspr_move(2, ix1 + (24 - 6), iy1 + (50 - 5));
-	xspr_move(3, ix2 + (24 - 6), iy2 + (50 - 5));
-	xspr_move(4, ix3 + (24 - 6), iy3 + (50 - 5));
+	xspr_move_prep(0, pix + (24 - 8), piy + (50 - 8));
+	xspr_move_prep(1, bix + (24 - 12), biy + (50 - 12));
+	xspr_move_prep(2, ix1 + (24 - 6), iy1 + (50 - 5));
+	xspr_move_prep(3, ix2 + (24 - 6), iy2 + (50 - 5));
+	xspr_move_prep(4, ix3 + (24 - 6), iy3 + (50 - 5));
+
+	xspr_move_done();
 }
 
 void player_control(void)
@@ -3194,14 +3319,14 @@ EnemyType player_collision(void)
 					{
 						enemies[i].type = ET_DROPPING_COIN;
 						enemies[i].phase = 248;
-						sidfx_play(2, SIDFXStar, 4);
+						sidfx_play(2, SIDFXKatching, 5);
 					}
 					else if (explode == ET_POWERUP)
 					{
 						switch ((PowerUp)enemies[i].vx)
 						{
 							case PWUP_SLOWDOWN:
-								playfield.vx = (playfield.vx + 16) >> 1;
+								playfield.vx = (playfield.vx + minvx) >> 1;
 								break;
 							case PWUP_SHIELD:
 								game.shield = 255;
@@ -3353,7 +3478,7 @@ void chain_physics(void)
 
 	if (rq > 0)
 	{
-		char	r = usqrt(rq);
+		char	r = tsqrt(rq);
 
 		char	t = 0;
 		if (game.pulling)
@@ -3401,8 +3526,8 @@ void charset_init(void)
 void playfield_init(void)
 {
 	playfield.px = 0;
-	playfield.vx = 16;
-	playfield.scrolled = false;
+	playfield.vx = minvx;
+	playfield.phase = PPHASE_IDLE;
 	playfield.wsize = 12;
 	playfield.wfreq = 16;
 
@@ -3453,6 +3578,7 @@ void playfield_init(void)
 	rirq_data(&irq_center, 0, 0x2a);
 
 	playfield_column();
+	playfield_column1();
 	playfield_scroll1();
 
 	vic_waitTop();
@@ -3468,12 +3594,24 @@ void playfield_advance(void)
 	enemies_scroll((char)(playfield.px >> 4) - px);
 }
 
+void playfield_prescroll(void)
+{
+	if (playfield.phase == PPHASE_SCROLLED)
+	{
+		playfield_column();
+		if (cframe)
+			playfield_column1();
+		else
+			playfield_column0();
+	}
+}
+
 void playfield_scroll(void)
 {
 	if (playfield.px & 128)
 	{
 		playfield.px &= 127;
-		playfield.scrolled = true;
+		playfield.phase = PPHASE_SCROLLED;
 		vic.ctrl2 = VIC_CTRL2_MCM | ((playfield.px >> 4) ^ 7);
 
 		char	m;
@@ -3493,25 +3631,29 @@ void playfield_scroll(void)
 
 		cframe = !cframe;
 
+//		vic.color_border = 1;
 		playfield_scrollc();
+//		vic.color_border = 0;
 	}
 	else
 	{
 		vic.ctrl2 = VIC_CTRL2_MCM | ((playfield.px >> 4) ^ 7);
 
-		if (playfield.scrolled)
+		if (playfield.phase == PPHASE_SCROLLED)
 		{
-			playfield.scrolled = false;
-//	vic.color_border--;
-			playfield_column();
-//	vic.color_border++;
+			playfield.phase = PPHASE_COPIED;
+//			vic.color_border = 2;
 			if (cframe)
 				playfield_scroll1();
 			else
 				playfield_scroll0();
+//			vic.color_border = 0;
 		}
 		else
+		{
+			playfield.phase = PPHASE_IDLE;
 			vic_waitTop();
+		}
 	}
 }
 
@@ -3582,6 +3724,9 @@ void game_state(GameState state)
 	} while (state != game.state);
 }
 
+byte rirq_framepos[256];
+byte rirq_pcount;
+
 // Work for current frame
 void game_loop()
 {
@@ -3600,39 +3745,67 @@ void game_loop()
 			game_state(GS_PLAYING);
 		break;
 	case GS_PLAYING:		
+
+		playfield_prescroll();
+
+//		if (!ntsc)
+		{
+//			vic.color_border = 1;
+			while ((vic.ctrl1 & VIC_CTRL1_RST8) || vic.raster < 58)
+				;
+//			vic.color_border = 2;
+		}
+
 		playfield_advance();
 
-		if (!--game.count)
+		if (physics56 != 4)
 		{
-			game_level();
-			game.count = 150;
+			if (!--game.count)
+			{
+				game_level();
+				game.count = 150;
+			}
+
+			if (game.count & 1)
+			{
+				if (game.magnet)
+					game.magnet--;
+				if (game.shield)
+				{
+					game.shield--;
+					if (game.shield < 32)
+						xspr_color(0, game.shield & 2 ? VCOL_LT_GREY : VCOL_ORANGE);
+				}
+				if (game.bubble)
+				{
+					game.bubble--;
+					if (game.bubble < 32)
+						xspr_color(1, game.bubble & 2 ? VCOL_LT_BLUE : VCOL_MED_GREY);			
+				}
+			}
 		}
 
-		if (game.count & 1)
-		{
-			if (game.magnet)
-				game.magnet--;
-			if (game.shield)
-			{
-				game.shield--;
-				if (game.shield < 32)
-					xspr_color(0, game.shield & 2 ? VCOL_LT_GREY : VCOL_ORANGE);
-			}
-			if (game.bubble)
-			{
-				game.bubble--;
-				if (game.bubble < 32)
-					xspr_color(1, game.bubble & 2 ? VCOL_LT_BLUE : VCOL_MED_GREY);			
-			}
-		}
+//		vic.color_border = 4;
+		while (rirq_count == rirq_pcount)
+			;
+//		vic.color_border = 0;
 
-		vic_waitBottom();
+		rirq_pcount = rirq_count;
+
+//		rirq_framepos[rirq_count] = playfield.px;
+
+		while (!(vic.ctrl1 & VIC_CTRL1_RST8) && (char)(vic.raster - 40) < 208)
+			;
 
 		player_show();
+
 		playfield_scroll();
 
-		player_control();
-		player_advance();
+		if (physics56 != 3)		
+		{
+			player_control();
+			player_advance();
+		}
 		ball_collision();
 
 		et = player_collision();
@@ -3652,9 +3825,19 @@ void game_loop()
 				star_inc();
 			else if (et == ET_COIN)
 				score_add(100);
-			player_physics();
-			chain_physics();
+
+			if (physics56 == 6)
+				physics56 = 0;
+			else
+			{
+				player_physics();
+				chain_physics();
+			}
 		}
+
+		if (ntsc)
+			physics56++;
+
 		break;
 
 	case GS_EXPLODING:
@@ -3724,6 +3907,22 @@ int main(void)
 
 	black_screen();
 
+	zseed = 31232;
+
+	vic_waitTop();
+	vic_waitBottom();
+	char	max = 0;
+	while (vic.ctrl1 & VIC_CTRL1_RST8)
+	{
+		if (vic.raster > max)
+			max = vic.raster;
+	}
+
+	ntsc = max < 8;
+	minvx = ntsc ? 13 : 16;
+	maxvx = ntsc ? 53 : 64;
+
+
 	// Copy spriteset under IO, freeing 0xc000..0xcfff
 	mmap_set(MMAP_CHAR_ROM);
 
@@ -3748,12 +3947,13 @@ int main(void)
 	game_state(GS_TITLE);
 
 	for(;;)		
-	{		
-		score_inc();
+	{	
+		if (physics56 != 2)	
+			score_inc();
+
 //	vic.color_border++;
 		sidfx_loop_2();
 //	vic.color_border++;
-		vic_waitBottom();
 //	vic.color_border--;
 //	vic.color_border--;
 		game_loop();
