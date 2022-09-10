@@ -38,7 +38,7 @@
 
 __export char music[] = {
 	#embed 0x2000 0x88 "GameScene.sid"
-}
+};
 
 // Load sprites into sprite section
 #pragma data(spriteset)
@@ -56,11 +56,11 @@ char charset_center[] = {
 
 char tileset_center[] = {
 	#embed "ballnchain_center - Tiles.bin"	
-}
+};
 
 char charattribs_center[] = {
 	#embed "ballnchain_center - CharAttribs_L1.bin"	
-}
+};
 
 // Compressed charset, attributes and tioles for bottom range
 char charset_bottom[] = {
@@ -69,7 +69,7 @@ char charset_bottom[] = {
 
 char tileset_bottom[] = {
 	#embed "ballnchain_bottom - Tiles.bin"	
-}
+};
 
 
 // Shared foreground charset
@@ -87,7 +87,7 @@ char titlescreen[] = {
 	#embed 8000    0 lzo "titlesketch.bin"
 	#embed 1000 8000 lzo "titlesketch.bin"
 	#embed 1000 9000 lzo "titlesketch.bin"
-}
+};
 
 // Double buffered screend
 byte * const Screen0 = (byte *)0xc800;
@@ -1613,7 +1613,7 @@ void titlescreen_show(void)
 			Color  [j + 0x200] = Screen0[Color  [j + 0x200]];
 			Color  [j + 0x300] = Screen0[Color  [j + 0x300]];
 			j++;
-		} while (j)
+		} while (j);
 
 		vic_waitFrame();
 
@@ -1629,7 +1629,7 @@ void titlescreen_show(void)
 			Screen1[j + 0x200] = Screen0[Screen1[j + 0x200]];
 			Screen1[j + 0x300] = Screen0[Screen1[j + 0x300]];
 			j++;
-		} while (j)
+		} while (j);
 
 		vic_waitFrame();
 
@@ -2470,9 +2470,9 @@ __zeropage	char	xspr_msb;
 void playfield_init_font(void)
 {
 	oscar_expand_lzo(Font, charset_center);
-	memcpy(Font + 0xc0 * 8, charset_front, 64 * 8)
+	memcpy(Font + 0xc0 * 8, charset_front, 64 * 8);
 	oscar_expand_lzo(FontBottom, charset_bottom);
-	memcpy(FontBottom + 0xc0 * 8, charset_front, 64 * 8)
+	memcpy(FontBottom + 0xc0 * 8, charset_front, 64 * 8);
 	memset(DynSprites, 0, 2048);
 
 	memset(Screen0, 0xc1, 1000);
@@ -3571,7 +3571,7 @@ void playfield_scrollc(void)
 
 unsigned tsqrt(unsigned n)
 {
-    unsigned p, q, r, h
+    unsigned p, q, r, h;
 
     p = 0;
     r = n;
@@ -4109,7 +4109,7 @@ void chain_physics(void)
 
 	// Square of length of chain
 
-	unsigned	rq = usquare(dx) + usquare(dy)
+	unsigned	rq = usquare(dx) + usquare(dy);
 
 	// Chain is not shorted
 
