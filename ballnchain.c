@@ -13,6 +13,8 @@
 #include <oscar.h>
 #include <audio/sidfx.h>
 
+#pragma stacksize(512)
+
 // setup main memory region for code and data
 #pragma region( main, 0x0a00, 0x9e00, , , {code, data, bss, heap} )
 #pragma region( stack, 0x9e00, 0xa000, , , {stack})
@@ -1339,7 +1341,7 @@ bool titlescreen_chase_step(void)
 			spr_image(0, 64);
 		}
 	}
-	else if (title_ty == 1)
+	else //if (title_ty == 1)
 	{
 		// Left to right, balls chasing ghosts
 
@@ -3987,7 +3989,7 @@ EnemyType player_collision(void)
 
 // Check collision of ball with enemies
 
-bool ball_collision(void)
+void ball_collision(void)
 {
 	// Not passing through bottom
 	if (ball.py > (192 << PBITS))
